@@ -1,5 +1,13 @@
 ---
-title: "main"
-output: html_document
+title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
+author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
+date: "2026-02-18"
+output: rmdformats::material
+
 ---
 
+# introduction
+
+# Method
+
+# Results
