@@ -89,7 +89,7 @@ filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
     mutate(
       total_intensity = as.numeric(.data[[col_total_intensity]]),
       total_intensity = na_if(total_intensity, 0),
-      protein_id      = .data[[col_protein_id]],
+      Protein_id      = .data[[col_protein_id]],
       Organism        = str_replace(.data[[col_organism]], " ", "_")
     )
 
@@ -275,7 +275,7 @@ process_tryptic <- function(fasta_paths, output_path) {
   )
 
   # Observable peptide counts per protein
-  observable_peptides <- tibble(protein_id = all_fasta_ids) %>%
+  observable_peptides <- tibble(Protein_id = all_fasta_ids) %>%
     bind_cols(
       map_dfc(names(all_filtered_digests), ~ tibble(
         !!paste0("n_", .x) := map_int(all_filtered_digests[[.x]], length)
@@ -343,7 +343,7 @@ relative_TopN_computation <- function(tmt_data) {
 #' @return The input tibble joined with iBAQ quantification columns
 ibaq_computation <- function(tmt_data, observable_peptides, observable_col = "n_tryptic") {
   tmt_data %>%
-    left_join(observable_peptides, by = "protein_id") %>%
+    left_join(observable_peptides, by = "Protein_id") %>%
     mutate(
       unmatched = is.na(.data[[observable_col]])
     ) %>%
@@ -422,7 +422,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   # --- Write outputs ---
   write_tsv_table(
     TopN_data %>% select(
-      Species, Replicate, protein_id, Treatment,
+      Species, Replicate, Protein_id, Treatment,
       total_intensity,
       relative_TopN, relative_TopN_log2, relative_TopN_log2mean,
       relative_TopN_norm, relative_TopN_log, relative_TopN_PpB
@@ -431,7 +431,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   )
 
   ibaq_cols <- c(
-    "Species", "Replicate", "protein_id", "Treatment",
+    "Species", "Replicate", "Protein_id", "Treatment",
     "iBAQ", "iBAQ_log2", "iBAQ_log2_mean", "riBAQ", "iBAQ_log", "iBAQ_PpB"
   )
 
