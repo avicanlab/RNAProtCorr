@@ -169,9 +169,11 @@ filter_peptides <- function(peps) {
   peps[lengths >= min_peptide_len & lengths <= max_peptide_len]
 }
 
-process_tryptic <- function(fasta_path, output_path) {
-  fasta <- readAAStringSet(fasta_path)
-  fasta_ids <- sub(" .*", "", names(fasta))
+process_tryptic <- function(fasta_paths, output_path) {
+  all_fasta_ids <- c()
+  all_raw_digests <- list()
+  all_filtered_digests <- list()
+  all_fasta_ids_per_file <- list()
 
   # Define enzymes and missed cleavage configs
   configs <- list(
@@ -183,66 +185,77 @@ process_tryptic <- function(fasta_path, output_path) {
     tryptic_mc_low  = list(enzym = "trypsin-low", missedCleavages = 0:missed_cleavages)
   )
 
-  # Run all digestions
-  raw_digests <- map(
-    configs,
-    ~ as.list(cleave(
-      fasta,
-      enzym = .x$enzym,
-      missedCleavages = .x$missedCleavages
-    ))
-  )
-  filtered_digests <- map(raw_digests, ~ map(.x, filter_peptides))
+  for (fasta_path in fasta_paths) {
+    cat("\nProcessing:", fasta_path, "\n")
+    fasta <- readAAStringSet(fasta_path)
+    fasta_ids <- sub(" .*", "", names(fasta))
 
-  # Build comparison table: before vs after filtering
+    # Check for duplicate IDs across files
+    duplicated_ids <- intersect(fasta_ids, all_fasta_ids)
+    if (length(duplicated_ids) > 0) {
+      warning(
+        length(duplicated_ids), " protein ID(s) in ", basename(fasta_path),
+        " are already present in a previous FASTA file. Not expected!\n",
+        "Duplicated IDs: ", paste(head(duplicated_ids, 5), collapse = ", "),
+        if (length(duplicated_ids) > 5) "..." else ""
+      )
+    }
+
+    all_fasta_ids <- c(all_fasta_ids, fasta_ids)
+    all_fasta_ids_per_file[[fasta_path]] <- fasta_ids
+
+    # Run all digestions
+    raw_digests <- map(configs, ~ as.list(cleave(fasta, enzym = .x$enzym, missedCleavages = .x$missedCleavages)))
+    filtered_digests <- map(raw_digests, ~ map(.x, filter_peptides))
+
+    # Accumulate digests
+    for (cfg in names(configs)) {
+      all_raw_digests[[cfg]] <- c(all_raw_digests[[cfg]], raw_digests[[cfg]])
+      all_filtered_digests[[cfg]] <- c(all_filtered_digests[[cfg]], filtered_digests[[cfg]])
+    }
+  }
+
+  # Build comparison table across all files
   comparison_table <- map_dfr(names(configs), function(cfg) {
-    n_before <- sum(map_int(raw_digests[[cfg]], length))
-    n_after <- sum(map_int(filtered_digests[[cfg]], length))
+    n_before <- sum(map_int(all_raw_digests[[cfg]], length))
+    n_after <- sum(map_int(all_filtered_digests[[cfg]], length))
     tibble(
-      config = cfg,
-      n_before = n_before,
-      n_after = n_after,
+      config    = cfg,
+      n_before  = n_before,
+      n_after   = n_after,
       n_removed = n_before - n_after,
-      pct_kept = round(100 * n_after / n_before, 1)
+      pct_kept  = round(100 * n_after / n_before, 1)
     )
   })
 
   cat("\nPeptide filtering summary (length", min_peptide_len, "-", max_peptide_len, "aa):\n")
   print(comparison_table)
 
-  write.table(
-    comparison_table,
-    paste0(output_path, "peptide_filter_comparison.tsv"),
-    sep = "\t",
-    row.names = FALSE,
-    quote = FALSE
+  write.table(comparison_table, paste0(output_path, "peptide_filter_comparison.tsv"),
+    sep = "\t", row.names = FALSE, quote = FALSE
   )
 
   # Build final observable peptides table
-  observable_peptides <- tibble(protein_id = fasta_ids) %>%
+  observable_peptides <- tibble(protein_id = all_fasta_ids) %>%
     bind_cols(
-      map_dfc(names(filtered_digests), ~ tibble(
-        !!paste0("n_", .x) := map_int(filtered_digests[[.x]], length)
+      map_dfc(names(all_filtered_digests), ~ tibble(
+        !!paste0("n_", .x) := map_int(all_filtered_digests[[.x]], length)
       ))
     )
 
-  cat("\nSummary of tryptic peptide counts after filtering:\n")
-
-  summary_table <- map_dfr(names(filtered_digests), function(cfg) {
+  # Summary table
+  summary_table <- map_dfr(names(all_filtered_digests), function(cfg) {
     s <- summary(observable_peptides[[paste0("n_", cfg)]])
     as_tibble(t(as.matrix(s))) %>%
       mutate(config = cfg) %>%
       select("config", everything())
   })
 
+  cat("\nSummary of tryptic peptide counts after filtering:\n")
   print(summary_table)
 
-  write.table(
-    summary_table,
-    paste0(output_path, "peptide_summary.tsv"),
-    sep = "\t",
-    row.names = FALSE,
-    quote = FALSE
+  write.table(summary_table, paste0(output_path, "peptide_summary.tsv"),
+    sep = "\t", row.names = FALSE, quote = FALSE
   )
 
   observable_peptides
@@ -325,7 +338,10 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   TopN_data <- relative_TopN_computation(unified_metadata_filtered_tmt)
 
   # Generate tryptic peptide counts from FASTA
-  protein2tryptic <- process_tryptic(fasta_path, output_path)
+  fasta_files <- list.files(fasta_path, pattern = "\\.fa$", full.names = TRUE)
+  protein2tryptic <- process_tryptic(fasta_files, output_path)
+
+  # Get the iBAQ matrix for each sample
   iBAQ_data <- ibaq_computation(unified_metadata_filtered_tmt, protein2tryptic)
   iBAQ_mc_data <- ibaq_computation(unified_metadata_filtered_tmt, protein2tryptic, "n_tryptic_mc")
 
@@ -393,7 +409,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
 test_analysis <- function() {
   # Run main analysis for testing
   tmt_path <- "DATA/Proteome/"
-  fasta_path <- "DATA/Fasta_files/Salmonella_enterica_subsp._enterica_serovar_Typhimurium_str._SL1344.fa"
+  fasta_path <- "DATA/Fasta_files/"
   metadata_path <- "DATA/Proteome/sample_mapping.xlsx"
   output_path <- "Analyses/"
   main_analysis(
