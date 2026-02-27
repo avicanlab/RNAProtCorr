@@ -103,9 +103,12 @@ filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
     filter(.data[[col_unique_peptides]] > 1)
 
   step4 <- step3 %>%
-    filter(!is.na(.data[[col_gene]]))
+    filter(total_intensity > 0)
 
   step5 <- step4 %>%
+    filter(!is.na(.data[[col_gene]]))
+
+  step6 <- step5 %>%
     group_by(.data[[col_gene]]) %>%
     filter(
       .data[[col_unique_peptides]] == max(.data[[col_unique_peptides]]),
@@ -114,17 +117,18 @@ filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
     ungroup()
 
   filter_log <- c(
-    species           = curr_species,
-    replicate         = curr_replicate,
-    initial           = nrow(step0),
-    remove_non_sp     = nrow(step1),
-    remove_contam     = nrow(step2),
+    species = curr_species,
+    replicate = curr_replicate,
+    initial = nrow(step0),
+    remove_non_sp = nrow(step1),
+    remove_contam = nrow(step2),
     remove_unique_pep = nrow(step3),
-    remove_na_gene    = nrow(step4),
-    remove_dedup      = nrow(step5)
+    remove_intensity_0 = nrow(step4),
+    remove_na_gene = nrow(step5),
+    remove_dedup = nrow(step6)
   )
 
-  list(filtered_tmt = step5, filter_log = filter_log)
+  list(filtered_tmt = step6, filter_log = filter_log)
 }
 
 #' Process all TMT TSV files in a directory
