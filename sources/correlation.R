@@ -162,6 +162,12 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name, species
             .groups = "drop"
         )
 
+    # Force Ctrl first, then alphabetical
+    treatments <- unique(correlation_df$Treatment)
+    ordered_treatments <- c("Ctrl", sort(treatments[treatments != "Ctrl"]))
+    correlation_df$Treatment <- factor(correlation_df$Treatment, levels = ordered_treatments)
+    label_df$Treatment <- factor(label_df$Treatment, levels = ordered_treatments)
+
     # PLOT
     p <- ggplot(correlation_df, aes(x = mean_Log2_TPM, y = !!sym(mean_protQ_col))) +
         geom_point(aes(colour = density), alpha = 0.6, size = 1.2) +
