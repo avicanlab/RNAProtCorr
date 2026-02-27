@@ -32,7 +32,7 @@ treatment_list <- c(
 # ============================================================================
 
 read_tpm <- function(dataset_path, sp_abbv) {
-    select_columns <- c("Species", "New_locus_tag")
+    select_columns <- c("Species", "New_locus_tag", "Old_locus_tag")
     # Build pattern: ABBV_Treatment_Replicate (GE) - TPM
     pattern <- paste0(
         "^", sp_abbv, "_(",
@@ -50,6 +50,11 @@ read_tpm <- function(dataset_path, sp_abbv) {
                 )
             )
         ) %>%
+        mutate(
+            New_locus_tag = if_else(is.na(New_locus_tag) | New_locus_tag == "N/A", Old_locus_tag, New_locus_tag)
+        )
+    data %>%
+        select(-Old_locus_tag) %>%
         rename_at("New_locus_tag", ~"Protein_id") %>%
         pivot_longer(
             cols      = -c(Species, Protein_id),
@@ -117,7 +122,7 @@ calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
 }
 
 # 4. VISUALIZATION FUNCTIONS
-plot_correlation <- function(correlation_df, mean_protQ_col, output_path, protQ_name = NULL) {
+plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name, species, output_path) {
     # ============================================================
     # Scatter plots: Mean TPM (log2) vs Mean iBAQ (log2) per condition
     # Pearson R and p-value displayed on each panel
@@ -173,7 +178,7 @@ plot_correlation <- function(correlation_df, mean_protQ_col, output_path, protQ_
         labs(
             x     = "Mean TPM (log2)",
             y     = "Mean iBAQ (log2)",
-            title = "S. aureus"
+            title = species
         ) +
         theme_bw(base_size = 10) +
         theme(
@@ -184,11 +189,7 @@ plot_correlation <- function(correlation_df, mean_protQ_col, output_path, protQ_
             legend.position  = "right"
         )
 
-    if (!is.null(protQ_name)) {
-        filename <- paste0(output_path, "/", paste("TPM", protQ_name, "correlation_panels", sep = "_"))
-    } else {
-        filename <- paste0(output_path, "/", paste("TPM", mean_protQ_col, "correlation_panels", sep = "_"))
-    }
+    filename <- paste0(output_path, "/", paste(species, "TPM", protQ_name, "correlation_panels", sep = "_"))
 
     ggsave(paste0(filename, ".pdf"),
         plot = p,
@@ -206,62 +207,101 @@ plot_correlation <- function(correlation_df, mean_protQ_col, output_path, protQ_
 }
 
 # 5. MAIN ORCHESTRATION FUNCTION
-main_analysis <- function(TPM_PATH, TOPN_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
-    # Load data
-    tpm_files <- list.files(TPM_PATH, pattern = "\\.xlsx$", full.names = TRUE)
+# ============================================================
+# Process one species: computes correlations and plots
+# ============================================================
 
-    tpm_data <- process_tpm(tpm_files) %>%
+process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output_path) {
+    species_name <- tools::file_path_sans_ext(str_extract(basename(tpm_file), "^[A-Za-z]+_[A-Za-z]+"))
+    message("Processing species: ", species_name)
+
+    # --- TPM for this species ---
+    tpm_species <- process_tpm(list(tpm_file)) %>%
         filter(!is.na(Protein_id)) %>%
         log2_transform(value_col = "TPM") %>%
-        rename_at(vars(mean_log2), ~"mean_Log2_TPM")
+        rename_at(vars(mean_log2), ~"mean_Log2_TPM") %>%
+        mutate(Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)) # For Y.pseudotuberculosis
 
-    topN_data <- read_tsv(
-        TOPN_PATH,
-        col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
-    )
+    # --- Filter protQ tables to this species ---
+    topN_species <- topN_data %>% filter(Species == species_name)
+    iBAQ_species <- iBAQ_data %>% filter(Species == species_name)
+    iBAQ_mc_species <- iBAQ_mc_data %>% filter(Species == species_name)
 
-    total_intensity_data <- topN_data %>%
+    # Guard: skip if no matching rows
+    if (nrow(topN_species) == 0 & nrow(iBAQ_species) == 0 & nrow(iBAQ_mc_species) == 0) {
+        warning("No data found for species: ", species_name, " — skipping.")
+        return(invisible(NULL))
+    }
+
+    # --- Total Intensity ---
+    intensity_species <- topN_species %>%
         log2_transform(value_col = "total_intensity") %>%
         rename_at(vars(mean_log2), ~"mean_Log2_intensity")
 
-    corr_tpm_intensity_df <- calculate_correlation(tpm_data, total_intensity_data, "mean_Log2_intensity")
-    plot_correlation(corr_tpm_intensity_df, "mean_Log2_intensity", output_path, protQ_name = "Intensity")
+    corr_intensity <- calculate_correlation(tpm_species, intensity_species, "mean_Log2_intensity")
+    plot_correlation(corr_intensity, "mean_Log2_intensity", "Intensity", species_name, output_path)
 
-    topN_data <- topN_data %>%
+    # --- TopN ---
+    topN_species <- topN_species %>%
         log2_transform(value_col = "relative_TopN") %>%
         rename_at(vars(mean_log2), ~"mean_Log2_TopN")
 
-    corr_tpm_topN_df <- calculate_correlation(tpm_data, topN_data, "mean_Log2_TopN")
-    plot_correlation(corr_tpm_topN_df, "mean_Log2_TopN", output_path, protQ_name = "TopN")
+    corr_topN <- calculate_correlation(tpm_species, topN_species, "mean_Log2_TopN")
+    plot_correlation(corr_topN, "mean_Log2_TopN", "TopN", species_name, output_path)
 
-    iBAQ_data <- read_tsv(
-        IBAQ_PATH,
-        col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
-    ) %>%
+    # --- iBAQ ---
+    iBAQ_species <- iBAQ_species %>%
         log2_transform(value_col = "iBAQ") %>%
         rename_at(vars(mean_log2), ~"mean_Log2_iBAQ")
 
-    corr_tpm_iBAQ_df <- calculate_correlation(tpm_data, iBAQ_data, "mean_Log2_iBAQ")
-    plot_correlation(corr_tpm_iBAQ_df, "mean_Log2_iBAQ", output_path, protQ_name = "iBAQ")
+    corr_iBAQ <- calculate_correlation(tpm_species, iBAQ_species, "mean_Log2_iBAQ")
+    plot_correlation(corr_iBAQ, "mean_Log2_iBAQ", "iBAQ", species_name, output_path)
 
-    iBAQ_mc_data <- read_tsv(
-        IBAQ_MC_PATH,
-        col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
-    ) %>%
+    # --- iBAQ MC ---
+    iBAQ_mc_species <- iBAQ_mc_species %>%
         log2_transform(value_col = "iBAQ") %>%
         rename_at(vars(mean_log2), ~"mean_Log2_iBAQ")
-    corr_tpm_iBAQ_mc_df <- calculate_correlation(tpm_data, iBAQ_mc_data, "mean_Log2_iBAQ")
-    plot_correlation(corr_tpm_iBAQ_mc_df, "mean_Log2_iBAQ", output_path, protQ_name = "iBAQ_MC")
+
+    corr_iBAQ_mc <- calculate_correlation(tpm_species, iBAQ_mc_species, "mean_Log2_iBAQ")
+    plot_correlation(corr_iBAQ_mc, "mean_Log2_iBAQ", "iBAQ_MC", species_name, output_path)
+
+    message("Done: ", species_name)
+}
 
 
-    # return(results)
-    print("Done")
+# ============================================================
+# Main: iterates over all TPM files and species
+# ============================================================
+
+main_analysis <- function(TPM_PATH, TOPN_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
+    # --- Load protQ tables once (they contain all species) ---
+    topN_data <- read_tsv(TOPN_PATH,
+        col_names = TRUE,
+        show_col_types = FALSE, skip_empty_rows = TRUE
+    )
+    iBAQ_data <- read_tsv(IBAQ_PATH,
+        col_names = TRUE,
+        show_col_types = FALSE, skip_empty_rows = TRUE
+    )
+    iBAQ_mc_data <- read_tsv(IBAQ_MC_PATH,
+        col_names = TRUE,
+        show_col_types = FALSE, skip_empty_rows = TRUE
+    )
+
+    # --- List all TPM files (one per species) ---
+    tpm_files <- list.files(TPM_PATH, pattern = "\\.xlsx$", full.names = TRUE)
+
+    # --- Process each species ---
+    lapply(tpm_files, function(tpm_file) {
+        tryCatch(
+            process_species(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output_path),
+            error = function(e) {
+                warning("Failed for file: ", basename(tpm_file), "\n  Error: ", e$message)
+            }
+        )
+    })
+
+    message("All species processed.")
 }
 
 # 6. TEST FUNCTION
