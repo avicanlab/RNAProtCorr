@@ -192,37 +192,30 @@ calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
 # VISUALIZATION
 # ============================================================================
 
-#' Compute 2D Kernel Density
-#'
-#' @description
-#' Helper function to compute 2D kernel density estimates and extract
-#' density values at observed data points for color mapping.
-#'
-#' @param x Numeric vector. X-axis values
-#' @param y Numeric vector. Y-axis values
-#'
-#' @return Numeric vector of density values corresponding to (x, y) points
-compute_point_density <- function(x, y) {
+compute_point_density <- function(x, y, n_bins = 50) {
     # Remove non-finite values
     keep <- is.finite(x) & is.finite(y)
     x_clean <- x[keep]
     y_clean <- y[keep]
 
-    # Compute 2D kernel density
-    dens <- kde2d(x_clean, y_clean,
-        n = 50,
-        lims = c(range(x_clean), range(y_clean))
-    )
+    # Define grid breaks
+    x_breaks <- seq(min(x_clean), max(x_clean), length.out = n_bins + 1)
+    y_breaks <- seq(min(y_clean), max(y_clean), length.out = n_bins + 1)
 
-    # Extract density at each point
-    ix <- findInterval(x_clean, dens$x)
-    iy <- findInterval(y_clean, dens$y)
-    ix <- pmin(pmax(ix, 1), 50)
-    iy <- pmin(pmax(iy, 1), 50)
+    # Assign each point to a bin
+    ix <- pmin(.bincode(x_clean, x_breaks, include.lowest = TRUE), n_bins)
+    iy <- pmin(.bincode(y_clean, y_breaks, include.lowest = TRUE), n_bins)
 
-    # Create output vector with NA for filtered values
+    # Count number of points per bin
+    bin_key <- paste(ix, iy, sep = "_")
+    bin_counts <- table(bin_key)
+
+    # Map count back to each point
+    point_counts <- as.integer(bin_counts[bin_key])
+
+    # Create output vector with NA for non-finite values
     density_out <- rep(NA_real_, length(x))
-    density_out[keep] <- mapply(function(i, j) dens$z[i, j], ix, iy)
+    density_out[keep] <- point_counts
 
     density_out
 }
@@ -276,15 +269,30 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name,
         mutate(Treatment = factor(Treatment, levels = ordered_treatments))
 
     # Create plot
-    p <- ggplot(correlation_df, aes(x = mean_Log2_TPM, y = !!sym(mean_protQ_col))) +
+    p <- ggplot(
+        correlation_df,
+        aes(x = mean_Log2_TPM, y = !!sym(mean_protQ_col))
+    ) +
         geom_point(aes(colour = density), alpha = 0.6, size = 1.2) +
-        scale_colour_gradient2(
-            low = "#c8d8e8",
-            mid = "#1a006e",
-            high = "red",
-            name = "density"
+        scale_colour_gradientn(
+            colours = c(
+                "#c8d8e8",
+                "#a8d8ea",
+                "#8B7BB5",
+                "#6B3A6B",
+                "#8B2020",
+                "#C0392B",
+                "#e8c8cc",
+                "#c8d8e8"
+            ),
+            name = "counts"
         ) +
-        geom_smooth(method = "lm", se = FALSE, colour = "red", linewidth = 0.8) +
+        geom_smooth(
+            method = "lm",
+            se = FALSE,
+            colour = "red",
+            linewidth = 0.8
+        ) +
         geom_text(
             data = label_df,
             aes(x = x, y = y, label = label),
@@ -295,7 +303,7 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name,
         facet_wrap(~Treatment, scales = "free", ncol = 6) +
         labs(
             x = "Mean TPM (log2)",
-            y = "Mean Protein Abundance (log2)",
+            y = paste("Mean", protQ_name, "(log2)", sep = " "),
             title = species
         ) +
         theme_bw(base_size = 10) +
@@ -346,7 +354,7 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name,
 #' @param output_path Character. Directory for saving plots
 #'
 #' @return NULL (invisibly). Generates plots and console messages
-process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output_path) {
+process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_path) {
     # Extract species name from filename
     species_name <- tools::file_path_sans_ext(
         str_extract(basename(tpm_file), "^[A-Za-z]+_[A-Za-z]+")
@@ -362,7 +370,7 @@ process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output
         mutate(Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE))
 
     # Filter protein quantification data to current species
-    topN_species <- topN_data %>%
+    RI_species <- RI_data %>%
         filter(Species == species_name)
     iBAQ_species <- iBAQ_data %>%
         filter(Species == species_name)
@@ -370,7 +378,7 @@ process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output
         filter(Species == species_name)
 
     # Guard: skip if no matched data
-    if (nrow(topN_species) == 0 &&
+    if (nrow(RI_species) == 0 &&
         nrow(iBAQ_species) == 0 &&
         nrow(iBAQ_mc_species) == 0) {
         warning("No data found for species: ", species_name, " — skipping.")
@@ -378,8 +386,8 @@ process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output
     }
 
     # ---- TOTAL INTENSITY ----
-    if (nrow(topN_species) > 0) {
-        intensity_species <- topN_species %>%
+    if (nrow(RI_species) > 0) {
+        intensity_species <- RI_species %>%
             log2_transform(value_col = "total_intensity") %>%
             rename(mean_Log2_intensity = mean_log2)
 
@@ -388,13 +396,13 @@ process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output
     }
 
     # ---- TOP-N QUANTIFICATION ----
-    if (nrow(topN_species) > 0) {
-        topN_transformed <- topN_species %>%
-            log2_transform(value_col = "relative_TopN") %>%
-            rename(mean_Log2_TopN = mean_log2)
+    if (nrow(RI_species) > 0) {
+        RI_transformed <- RI_species %>%
+            log2_transform(value_col = "RI") %>%
+            rename(mean_Log2_RI = mean_log2)
 
-        corr_topN <- calculate_correlation(tpm_species, topN_transformed, "mean_Log2_TopN")
-        plot_correlation(corr_topN, "mean_Log2_TopN", "TopN", species_name, output_path)
+        corr_RI <- calculate_correlation(tpm_species, RI_transformed, "mean_Log2_RI")
+        plot_correlation(corr_RI, "mean_Log2_RI", "RI", species_name, output_path)
     }
 
     # ---- iBAQ QUANTIFICATION ----
@@ -434,9 +442,9 @@ process_species <- function(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output
 #' @param output_path Character. Directory for saving outputs
 #'
 #' @return NULL (invisibly). Generates console output and plot files
-main_analysis <- function(TPM_PATH, TOPN_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
+main_analysis <- function(TPM_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
     # Load protein quantification reference tables (contain all species)
-    topN_data <- read_tsv(TOPN_PATH,
+    RI_data <- read_tsv(RI_PATH,
         col_names = TRUE,
         show_col_types = FALSE,
         skip_empty_rows = TRUE
@@ -458,7 +466,7 @@ main_analysis <- function(TPM_PATH, TOPN_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_p
     # Process each species with error handling
     lapply(tpm_files, function(tpm_file) {
         tryCatch(
-            process_species(tpm_file, topN_data, iBAQ_data, iBAQ_mc_data, output_path),
+            process_species(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_path),
             error = function(e) {
                 warning(
                     "Failed for file: ", basename(tpm_file),
@@ -485,7 +493,7 @@ main_analysis <- function(TPM_PATH, TOPN_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_p
 test_analysis <- function() {
     main_analysis(
         "DATA/Read_counts/",
-        "Analyses/TopN_data.tsv",
+        "Analyses/RI_data.tsv",
         "Analyses/iBAQ_data.tsv",
         "Analyses/iBAQ_mc_data.tsv",
         "Analyses"

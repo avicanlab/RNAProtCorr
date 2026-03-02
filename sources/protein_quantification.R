@@ -6,7 +6,7 @@
 #   This script processes TMT (Tandem Mass Tag) proteomics data. It:
 #     1. Filters TMT results per species and replicate
 #     2. Performs in silico trypsin digestion from FASTA files
-#     3. Computes relative TopN, iBAQ, and riBAQ quantifications
+#     3. Computes relative intensity, iBAQ, and riBAQ quantifications
 #
 # Requirements:
 #   install.packages("tidyverse")
@@ -309,7 +309,7 @@ process_tryptic <- function(fasta_paths, output_path) {
 # QUANTIFICATION
 # ============================================================================
 
-#' Compute relative TopN intensity per protein per sample
+#' Compute relative intensity per protein per sample
 #'
 #' Divides total intensity by the number of razor peptides, then normalises
 #' within each Species/Replicate group. Adds log2, log10, and parts-per-billion
@@ -317,20 +317,20 @@ process_tryptic <- function(fasta_paths, output_path) {
 #'
 #' @param tmt_data A unified TMT tibble with Species and Replicate columns
 #' @return The input tibble with additional TopN quantification columns
-relative_TopN_computation <- function(tmt_data) {
-  cat("Computing relative TopN for each sample...\n")
+RI_computation <- function(tmt_data) {
+  cat("Computing relative intensity for each sample...\n")
 
   tmt_data %>%
     mutate(
-      relative_TopN = .data[[col_total_intensity]] / .data[[col_razor_peptides]]
+      RI = .data[[col_total_intensity]] / .data[[col_razor_peptides]]
     ) %>%
     group_by(Species, Replicate) %>%
     mutate(
-      relative_TopN_log2     = log2(relative_TopN),
-      relative_TopN_log2mean = log2(relative_TopN) - mean(log2(relative_TopN), na.rm = TRUE),
-      relative_TopN_norm     = relative_TopN / sum(relative_TopN, na.rm = TRUE),
-      relative_TopN_log      = 10 + log10(relative_TopN_norm),
-      relative_TopN_PpB      = relative_TopN_norm * 1e9
+      RI_log2     = log2(RI),
+      RI_log2mean = log2(RI) - mean(log2(RI), na.rm = TRUE),
+      RI_norm     = RI / sum(RI, na.rm = TRUE),
+      RI_log      = 10 + log10(RI_norm),
+      RI_PpB      = RI_norm * 1e9
     ) %>%
     ungroup()
 }
@@ -413,7 +413,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
     left_join(metadata, by = c("Species", "Replicate"), relationship = "many-to-many")
 
   # --- TopN quantification ---
-  TopN_data <- relative_TopN_computation(unified_tmt)
+  RI_data <- RI_computation(unified_tmt)
 
   # --- In silico digest ---
   fasta_files <- list.files(fasta_path, pattern = "\\.fa$", full.names = TRUE)
@@ -425,13 +425,12 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
 
   # --- Write outputs ---
   write_tsv_table(
-    TopN_data %>% select(
+    RI_data %>% select(
       Species, Replicate, Protein_id, Treatment,
       total_intensity,
-      relative_TopN, relative_TopN_log2, relative_TopN_log2mean,
-      relative_TopN_norm, relative_TopN_log, relative_TopN_PpB
+      RI, RI_log2, RI_log2mean, RI_norm, RI_log, RI_PpB
     ),
-    output_path, "TopN_data.tsv"
+    output_path, "RI_data.tsv"
   )
 
   ibaq_cols <- c(
