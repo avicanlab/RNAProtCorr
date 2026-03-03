@@ -190,6 +190,54 @@ process_tmt <- function(tmt_path, output_path) {
   unified_tmt
 }
 
+#' Remove proteins with incomplete data across replicates and treatments
+#'
+#' Keeps only proteins that have at least one value for every unique
+#' Species-Replicate-Treatment combination in the dataset.
+#'
+#' @param tmt_data A tibble with Species, Replicate, and Treatment columns
+#' @return Filtered tibble with complete proteins only
+filter_complete_proteins <- function(tmt_data) {
+  # Get the total number of unique Species-Replicate-Treatment combinations
+  n_conditions <- tmt_data %>%
+    distinct(Replicate, Treatment) %>%
+    nrow()
+
+  all_proteins <- tmt_data %>%
+    distinct(Species, Protein_id)
+
+  n_before <- nrow(all_proteins)
+
+  # Keep only proteins that appear in all conditions
+  filtered <- tmt_data %>%
+    group_by(Species, Protein_id) %>%
+    filter(n_distinct(paste(Replicate, Treatment, sep = "_")) == n_conditions) %>%
+    ungroup()
+
+  kept_proteins <- filtered %>%
+    distinct(Species, Protein_id)
+
+  n_after <- nrow(kept_proteins)
+  n_removed <- n_before - n_after
+
+  # Find removed proteins
+  removed_proteins <- all_proteins %>%
+    anti_join(kept_proteins, by = c("Species", "Protein_id")) %>%
+    # Get additional info for removed proteins from original data
+    left_join(
+      tmt_data,
+      by = c("Species", "Protein_id")
+    )
+
+  message("Protein completeness filtering:\n")
+  message("  Total unique conditions: ", n_conditions, "\n")
+  message("  Proteins before filtering: ", n_before, "\n")
+  message("  Proteins after filtering: ", n_after, "\n")
+  message("  Proteins removed: ", n_removed, "\n\n")
+
+  list(filtered_data = filtered, removed_proteins = removed_proteins)
+}
+
 # ============================================================================
 # IN SILICO TRYPSIN DIGEST FROM FASTA
 # ============================================================================
@@ -443,8 +491,23 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   unified_tmt <- filtered_tmt %>%
     left_join(metadata, by = c("Species", "Replicate"), relationship = "many-to-many")
 
+  # --- Filter for complete proteins ---
+  completeness_result <- filter_complete_proteins(unified_tmt)
+  unified_filtered_tmt <- completeness_result$filtered_data
+  removed_proteins <- completeness_result$removed_proteins
+
+  # Write removed proteins table for manual review
+  if (nrow(removed_proteins) > 0) {
+    write.table(
+      removed_proteins %>% arrange(Species, Protein_id),
+      paste0(output_path, "removed_proteins_incomplete.tsv"),
+      sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message("Removed proteins written to: removed_proteins_incomplete.tsv\n")
+  }
+
   # --- TopN quantification ---
-  RI_data <- RI_computation(unified_tmt)
+  RI_data <- RI_computation(unified_filtered_tmt)
 
   # --- In silico digest ---
   fasta_files <- list.files(fasta_path, pattern = "\\.fa$", full.names = TRUE)
@@ -457,8 +520,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   # --- Write outputs ---
   write_tsv_table(
     RI_data %>% select(
-      Species, Replicate, Protein_id, Treatment,
-      total_intensity,
+      Species, Replicate, Protein_id, Treatment, total_intensity,
       RI, RI_log2, RI_log2mean, RI_norm, RI_log, RI_PpB
     ),
     output_path, "RI_data.tsv"
