@@ -20,6 +20,7 @@ library(tidyverse)
 library(readxl)
 library(Biostrings)
 library(cleaver)
+library(purrr)
 
 # ============================================================================
 # CONFIGURATION
@@ -64,7 +65,7 @@ read_tmt <- function(path) {
     path,
     col_names = TRUE,
     show_col_types = FALSE,
-    col_select = all_of(keep_cols),
+    col_select = c(all_of(keep_cols), starts_with("channel_")),
     skip_empty_rows = TRUE
   )
 }
@@ -175,7 +176,7 @@ process_tmt <- function(tmt_path, output_path) {
   filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
     mutate(across(-c("species", "replicate"), as.integer))
 
-  cat("TMT filtering summary:\n")
+  message("TMT filtering summary:\n")
   print(filter_log_df)
 
   write.table(
@@ -228,7 +229,7 @@ process_tryptic <- function(fasta_paths, output_path) {
   all_filtered_digests <- list()
 
   for (fasta_path in fasta_paths) {
-    cat("\nProcessing:", fasta_path, "\n")
+    message("\nProcessing:", fasta_path, "\n")
 
     fasta <- readAAStringSet(fasta_path)
     fasta_ids <- sub(" .*", "", names(fasta))
@@ -270,7 +271,7 @@ process_tryptic <- function(fasta_paths, output_path) {
     )
   })
 
-  cat("\nPeptide filtering summary (length", min_peptide_len, "-", max_peptide_len, "aa):\n")
+  message("\nPeptide filtering summary (length", min_peptide_len, "-", max_peptide_len, "aa):\n")
   print(comparison_table)
   write.table(
     comparison_table,
@@ -294,7 +295,7 @@ process_tryptic <- function(fasta_paths, output_path) {
       select("config", everything())
   })
 
-  cat("\nSummary of observable peptide counts after filtering:\n")
+  message("\nSummary of observable peptide counts after filtering:\n")
   print(summary_table)
   write.table(
     summary_table,
@@ -318,13 +319,27 @@ process_tryptic <- function(fasta_paths, output_path) {
 #' @param tmt_data A unified TMT tibble with Species and Replicate columns
 #' @return The input tibble with additional TopN quantification columns
 RI_computation <- function(tmt_data) {
-  cat("Computing relative intensity for each sample...\n")
+  message("Computing relative intensity for each sample...\n")
+
+  # Compute per-row channel sum (across all channel_ columns)
+  channel_cols <- grep("^channel_", colnames(tmt_data), value = TRUE)
 
   tmt_data %>%
     mutate(
-      RI = .data[[col_total_intensity]] / .data[[col_razor_peptides]]
+      channel_sum = rowSums(across(all_of(channel_cols)), na.rm = TRUE),
+      RI_total = (.data[[col_total_intensity]] / .data[[col_razor_peptides]])
     ) %>%
-    group_by(Species, Replicate) %>%
+    pivot_longer(
+      cols = all_of(channel_cols),
+      names_to = "channel_col",
+      values_to = "channel_intensity"
+    ) %>%
+    # Keep only the channel matching this row's treatment
+    filter(channel_col == paste0("channel_", TMT_label)) %>%
+    mutate(
+      RI = RI_total * (channel_intensity / channel_sum)
+    ) %>%
+    group_by(Species, Replicate, Treatment) %>%
     mutate(
       RI_log2     = log2(RI),
       RI_log2mean = log2(RI) - mean(log2(RI), na.rm = TRUE),
@@ -332,7 +347,8 @@ RI_computation <- function(tmt_data) {
       RI_log      = 10 + log10(RI_norm),
       RI_PpB      = RI_norm * 1e9
     ) %>%
-    ungroup()
+    ungroup() %>%
+    select(-channel_sum, -channel_intensity)
 }
 
 #' Compute iBAQ and riBAQ intensities per protein per sample
@@ -346,6 +362,10 @@ RI_computation <- function(tmt_data) {
 #' @param observable_col    Name of the column to use as denominator (default: "n_tryptic")
 #' @return The input tibble joined with iBAQ quantification columns
 ibaq_computation <- function(tmt_data, observable_peptides, observable_col = "n_tryptic") {
+  message("Computing iBAQ for each sample...\n")
+
+  # Compute per-row channel sum (across all channel_ columns)
+  channel_cols <- grep("^channel_", colnames(tmt_data), value = TRUE)
   tmt_data %>%
     left_join(observable_peptides, by = "Protein_id") %>%
     mutate(
@@ -359,7 +379,18 @@ ibaq_computation <- function(tmt_data, observable_peptides, observable_col = "n_
       .
     } %>%
     mutate(
-      iBAQ = total_intensity / .data[[observable_col]]
+      iBAQ_total = total_intensity / .data[[observable_col]],
+      channel_sum = rowSums(across(all_of(channel_cols)), na.rm = TRUE)
+    ) %>%
+    pivot_longer(
+      cols = all_of(channel_cols),
+      names_to = "channel_col",
+      values_to = "channel_intensity"
+    ) %>%
+    # Keep only the channel matching this row's treatment
+    filter(channel_col == paste0("channel_", TMT_label)) %>%
+    mutate(
+      iBAQ = iBAQ_total * (channel_intensity / channel_sum)
     ) %>%
     group_by(Species, Replicate) %>%
     mutate(
@@ -407,9 +438,9 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
     mutate(Replicate = paste0("R", Replicate))
 
   # --- TMT filtering ---
-  unified_filtered_tmt <- process_tmt(tmt_path, output_path)
+  filtered_tmt <- process_tmt(tmt_path, output_path)
 
-  unified_tmt <- unified_filtered_tmt %>%
+  unified_tmt <- filtered_tmt %>%
     left_join(metadata, by = c("Species", "Replicate"), relationship = "many-to-many")
 
   # --- TopN quantification ---
@@ -441,7 +472,7 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   write_tsv_table(iBAQ_data %>% select(all_of(ibaq_cols)), output_path, "iBAQ_data.tsv")
   write_tsv_table(iBAQ_mc_data %>% select(all_of(ibaq_cols)), output_path, "iBAQ_mc_data.tsv")
 
-  cat("\nAnalysis complete. Results written to:", output_path, "\n")
+  message("\nAnalysis complete. Results written to:", output_path, "\n")
 }
 
 # ============================================================================
