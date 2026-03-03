@@ -103,7 +103,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
 #'
 #' @return Tibble combining TPM data from all valid files
 process_tpm <- function(tpm_file) {
-    cat("Processing:", basename(path), "| Species:", curr_species, "\n")
+    message("Processing:", basename(path), "| Species:", curr_species, "\n")
     read_tpm(path, abbv) %>%
         mutate(Species = curr_species)
 }
