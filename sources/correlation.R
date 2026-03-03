@@ -31,7 +31,7 @@ species_abbv_map <- c(
 #' Treatment List
 #' Control and stress treatment conditions
 treatment_list <- c(
-    "Ctrl", "As", "Bs", "Hyp", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
+    "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
 )
 
 # ============================================================================
@@ -102,26 +102,10 @@ read_tpm <- function(dataset_path, sp_abbv) {
 #' @param tpm_files Character vector. Paths to TPM Excel files
 #'
 #' @return Tibble combining TPM data from all valid files
-process_tpm <- function(tpm_files) {
-    map_dfr(tpm_files, function(path) {
-        # Extract species name from filename (format: Genus_species)
-        curr_species <- str_extract(basename(path), "^[A-Za-z]+_[A-Za-z]+")
-
-        # Look up species abbreviation
-        abbv <- species_abbv_map[curr_species]
-        if (is.na(abbv)) {
-            warning(
-                "No abbreviation found for species '", curr_species,
-                "', skipping file: ", basename(path)
-            )
-            return(tibble())
-        }
-
-        cat("Processing:", basename(path), "| Species:", curr_species, "\n")
-
-        read_tpm(path, abbv) %>%
-            mutate(Species = curr_species)
-    })
+process_tpm <- function(tpm_file) {
+    cat("Processing:", basename(path), "| Species:", curr_species, "\n")
+    read_tpm(path, abbv) %>%
+        mutate(Species = curr_species)
 }
 
 # ============================================================================
@@ -360,9 +344,20 @@ process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_p
         str_extract(basename(tpm_file), "^[A-Za-z]+_[A-Za-z]+")
     )
     message("Processing species: ", species_name)
-
+    # Look up species abbreviation
+    abbv <- species_abbv_map[species_name]
+    if (is.na(abbv)) {
+        warning(
+            "No abbreviation found for species '", species_name,
+            "', skipping file: ", basename(tpm_file)
+        )
+        return(invisible(NULL))
+    }
     # Load and transform TPM data
-    tpm_species <- process_tpm(list(tpm_file)) %>%
+    tpm_species <- read_tpm(tpm_file, abbv) %>%
+        mutate(Species = species_name) %>%
+        # Update treatment name for consistency ("Mig" to "Hyp")
+        mutate(Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment)) %>%
         filter(!is.na(Protein_id)) %>%
         log2_transform(value_col = "TPM") %>%
         rename(mean_Log2_TPM = mean_log2) %>%
