@@ -141,21 +141,6 @@ read_tpm <- function(dataset_path, sp_abbv) {
         select(Species, Protein_id, Treatment, Replicate, TPM)
 }
 
-#' Process Multiple TPM Files
-#'
-#' @description
-#' Combines TPM data from multiple species files, handling species mapping
-#' and validation. Reports progress and skips files with unmapped species.
-#'
-#' @param tpm_files Character vector. Paths to TPM Excel files
-#'
-#' @return Tibble combining TPM data from all valid files
-process_tpm <- function(tpm_file) {
-    message("Processing:", basename(path), "| Species:", curr_species, "\n")
-    read_tpm(path, abbv) %>%
-        mutate(Species = curr_species)
-}
-
 # ============================================================================
 # DATA TRANSFORMATION
 # ============================================================================
