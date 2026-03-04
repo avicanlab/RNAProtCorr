@@ -385,9 +385,17 @@ RI_computation <- function(tmt_data) {
     # Keep only the channel matching this row's treatment
     filter(channel_col == paste0("channel_", TMT_label)) %>%
     mutate(
+      Intensity = .data[[col_total_intensity]] * channel_intensity / channel_sum,
       RI = RI_total * (channel_intensity / channel_sum)
     ) %>%
     group_by(Species, Replicate, Treatment) %>%
+    mutate(
+      Intensity_log2 = log2(Intensity),
+      Intensity_log2mean = log2(Intensity) - mean(log2(Intensity), na.rm = TRUE),
+      Intensity_norm = Intensity / sum(Intensity, na.rm = TRUE),
+      Intensity_log = 10 + log10(Intensity_norm),
+      Intensity_PpB = Intensity_norm * 1e9
+    ) %>%
     mutate(
       RI_log2     = log2(RI),
       RI_log2mean = log2(RI) - mean(log2(RI), na.rm = TRUE),
@@ -521,6 +529,8 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
   write_tsv_table(
     RI_data %>% select(
       Species, Replicate, Protein_id, Treatment, total_intensity,
+      Intensity, Intensity_log2, Intensity_log2mean,
+      Intensity_norm, Intensity_log, Intensity_PpB,
       RI, RI_log2, RI_log2mean, RI_norm, RI_log, RI_PpB
     ),
     output_path, "RI_data.tsv"

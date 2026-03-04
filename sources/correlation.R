@@ -480,7 +480,7 @@ build_exposure_plot <- function(df, label_pos, title) {
         geom_text(
             data = label_pos,
             aes(x = x, y = y, label = label),
-            hjust = 0.7,
+            hjust = 0.5,
             vjust = 1,
             size = 3,
             family = "mono",
@@ -638,7 +638,7 @@ process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_p
     # ---- TOTAL INTENSITY ----
     if (nrow(RI_species) > 0) {
         intensity_species <- RI_species %>%
-            log2_transform(value_col = "total_intensity") %>%
+            log2_transform(value_col = "Intensity") %>%
             rename(mean_Log2_intensity = mean_log2)
 
         corr_intensity <- calculate_correlation(tpm_species, intensity_species, "mean_Log2_intensity")

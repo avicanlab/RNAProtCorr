@@ -222,8 +222,9 @@ main_analysis <- function(RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
 
         # -- Transform to wide format --------------------------------------------
         data_paths <- list(
-            RI      = RI_data %>% filter(Species == species) %>% transform_data("RI", tmp_dir),
-            iBAQ    = iBAQ_data %>% filter(Species == species) %>% transform_data("iBAQ", tmp_dir),
+            Intensity = RI_data %>% filter(Species == species) %>% transform_data("Intensity", tmp_dir),
+            RI = RI_data %>% filter(Species == species) %>% transform_data("RI", tmp_dir),
+            iBAQ = iBAQ_data %>% filter(Species == species) %>% transform_data("iBAQ", tmp_dir),
             iBAQ_MC = iBAQ_mc_data %>% filter(Species == species) %>% transform_data("iBAQ", tmp_dir)
         )
 
@@ -236,9 +237,10 @@ main_analysis <- function(RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
 
         # -- PCA per normalization method ----------------------------------------
         dirs <- list(
-            RI      = file.path(sp_dir, "RI"),
-            iBAQ    = file.path(sp_dir, "iBAQ"),
-            iBAQ_MC = file.path(sp_dir, "iBAQ_MC")
+            Intensity   = file.path(sp_dir, "Intensity"),
+            RI          = file.path(sp_dir, "RI"),
+            iBAQ        = file.path(sp_dir, "iBAQ"),
+            iBAQ_MC     = file.path(sp_dir, "iBAQ_MC")
         )
         walk(dirs, ~ dir.create(file.path(.x, "PCA"), showWarnings = FALSE))
         for (norm_method in NORM_METHODS) {
