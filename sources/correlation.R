@@ -763,6 +763,6 @@ test_analysis <- function() {
 # ============================================================================
 
 # Run analysis when script is executed in interactive mode
-if (interactive()) {
+if (interactive() && !exists("SOURCED_AS_MODULE")) {
     test_analysis()
 }

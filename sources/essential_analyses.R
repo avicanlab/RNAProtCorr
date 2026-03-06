@@ -5,6 +5,9 @@
 # Description:
 # ============================================================================
 
+SOURCED_AS_MODULE <- TRUE
+source("sources/correlation.R")
+
 library(tidyverse)
 library(readxl)
 library(ggstar)
@@ -121,6 +124,7 @@ read_essential_vec <- function(filepath) {
 #' @return Tibble with columns: Protein_id, <out_col>
 log2_global_mean <- function(data, value_col, out_col) {
     data %>%
+        filter(.data[[value_col]] > 0) %>%
         group_by(Protein_id) %>%
         summarise(
             !!out_col := mean(log2(!!sym(value_col) + 1), na.rm = TRUE),
@@ -225,6 +229,80 @@ plot_essential_distribution <- function(
     invisible(NULL)
 }
 
+get_correlation <- function(
+  tpm_df, protQ_df, essential_vec, log2_col
+) {
+    essential_tpm_df <- tpm_df %>%
+        filter(Protein_id %in% essential_vec) %>%
+        filter(is.finite(mean_Log2_TPM))
+
+    essential_prot_df <- protQ_df %>%
+        filter(Protein_id %in% essential_vec) %>%
+        filter(is.finite(.data[[log2_col]]))
+
+    corr_all <- calculate_correlation(tpm_df, protQ_df, log2_col)
+    corr_essential <- calculate_correlation(
+        essential_tpm_df, essential_prot_df, log2_col
+    )
+    list(corr_all = corr_all, corr_essential = corr_essential)
+}
+
+plot_essential_vs_all_correlation <- function(
+  corr_all_df, corr_essential_df, species, measurement, output_path
+) {
+    # Join both correlation sets by treatment
+    plot_df <- inner_join(
+        corr_all_df %>% distinct(Treatment, R) %>% rename(R_all = R),
+        corr_essential_df %>% distinct(Treatment, R) %>% rename(R_essential = R),
+        by = "Treatment"
+    )
+
+    # Axis range: shared limits with a little padding, for the diagonal
+    axis_min <- floor(min(plot_df$R_all, plot_df$R_essential) * 10) / 10 - 0.05
+    axis_max <- ceiling(max(plot_df$R_all, plot_df$R_essential) * 10) / 10 + 0.05
+
+    p <- ggplot(plot_df, aes(x = R_all, y = R_essential, color = Treatment)) +
+        # Diagonal reference line (essential == all)
+        geom_abline(
+            slope     = 1,
+            intercept = 0,
+            linetype  = "dashed",
+            color     = "grey60",
+            linewidth = 0.6
+        ) +
+        geom_point(size = 4, alpha = 0.9) +
+        scale_color_manual(values = setNames(
+            scales::hue_pal()(nrow(plot_df)),
+            plot_df$Treatment
+        )) +
+        coord_fixed(
+            ratio  = 1,
+            xlim   = c(0.4, 1),
+            ylim   = c(0.4, 1)
+        ) +
+        labs(
+            title = bquote(italic(.(gsub("_", " ", species)))),
+            x     = "All genes'\nmRNA-protein level correlation",
+            y     = "Essential genes'\nmRNA-protein level correlation",
+            color = "Treatment"
+        ) +
+        theme_bw() +
+        theme(
+            plot.title      = element_text(face = "italic", hjust = 0.5),
+            axis.title      = element_text(size = 10),
+            legend.position = "right" # matches the figure (no legend shown)
+        )
+
+    save_plot(
+        plot     = p,
+        filepath = file.path(output_path, paste0(species, "_", measurement, "_essential_vs_all_correlation")),
+        width    = 5,
+        height   = 5
+    )
+
+    invisible(NULL)
+}
+
 # ============================================================================
 # MAIN ORCHESTRATION
 # ============================================================================
@@ -283,6 +361,24 @@ process_species <- function(
             )
         })
 
+    tpm_log2_transform <- tpm_species %>%
+        log2_transform(value_col = "TPM") %>%
+        rename(mean_Log2_TPM = mean_log2)
+
+    list(
+        list(df = intensity_species, col = "Intensity_meanlog2", lab = "Intensity"),
+        list(df = RI_species, col = "RI_meanlog2", lab = "RI"),
+        list(df = iBAQ_species, col = "iBAQ_meanlog2", lab = "iBAQ"),
+        list(df = iBAQ_mc_species, col = "iBAQ_meanlog2", lab = "iBAQ_mc")
+    ) %>%
+        walk(function(item) {
+            pair_corr <- get_correlation(
+                tpm_log2_transform, item$df, essential_vec, item$col
+            )
+            plot_essential_vs_all_correlation(
+                pair_corr$corr_all, pair_corr$corr_essential, species, item$lab, output_path
+            )
+        })
     invisible(NULL)
 }
 
