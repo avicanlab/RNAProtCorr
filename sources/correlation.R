@@ -417,7 +417,7 @@ compute_exposure_correlations <- function(df) {
             ),
             .groups = "drop"
         ) %>%
-        mutate(label = sprintf("R: %.2f\np: %.2e", meta_R, meta_pval))
+        mutate(label = sprintf("R: %.2f\np: %.3f", meta_R, meta_pval))
 }
 
 #' Build Label Position for Top-Right Annotation
@@ -433,9 +433,12 @@ compute_exposure_correlations <- function(df) {
 #'
 #' @return Single-row tibble with columns: x (chr), y (dbl), label (chr)
 build_label_position <- function(df, stats) {
+    y_max <- max(df$R, na.rm = TRUE)
+    y_range <- diff(range(df$R, na.rm = TRUE))
+
     tibble(
         x = last(levels(df$exposure_label)),
-        y = max(df$R, na.rm = TRUE)
+        y = y_max + y_range * 0.15
     ) %>%
         bind_cols(stats %>% select(label))
 }
@@ -463,22 +466,29 @@ build_exposure_plot <- function(df, label_pos, title) {
             alpha = 0.8
         ) +
         scale_starshape_manual(values = TREATMENT_SHAPES) +
-        geom_text(
+        geom_label(
             data = label_pos,
             aes(x = x, y = y, label = label),
-            hjust = 0.5,
+            hjust = 1,
             vjust = 1,
             size = 3,
             family = "mono",
             color = "black",
+            fill = "white",
+            label.color = "black", # box border color
+            label.size = 0.4, # border thickness
+            label.padding = unit(0.4, "lines"),
             inherit.aes = FALSE
         ) +
+        scale_y_continuous(
+            expand = expansion(mult = c(0.05, 0.1)) # 10% extra space on top
+        ) +
         labs(
-            title  = title,
-            x      = "Exposure time",
-            y      = "Pearson R",
-            fill   = "Species",
-            shape  = "Treatment"
+            title = title,
+            x     = "Exposure time",
+            y     = "Pearson R",
+            fill  = "Species",
+            shape = "Treatment"
         ) +
         theme_minimal() +
         theme(
