@@ -7,6 +7,7 @@
 
 library(tidyverse)
 library(readxl)
+library(ggstar)
 
 # ============================================================================
 # CONFIGURATION
@@ -15,9 +16,9 @@ library(readxl)
 #' Species Abbreviation Mapping
 #' Maps full species names to abbreviations for data parsing
 species_essential2tpm_map <- c(
-    "Senterica"             = "Salmonella_enterica",
-    "Saureus"               = "Staphylococcus_aureus",
-    "Ypseudotuberculosis"   = "Yersinia_pseudotuberculosis"
+    "Senterica"           = "Salmonella_enterica",
+    "Saureus"             = "Staphylococcus_aureus",
+    "Ypseudotuberculosis" = "Yersinia_pseudotuberculosis"
 )
 
 #' Species Abbreviation Mapping
@@ -34,26 +35,36 @@ treatment_list <- c(
     "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
 )
 
+# ============================================================================
+# DATA LOADING
+# ============================================================================
+
+#' Read TPM Data from Excel
+#'
+#' @description
+#' Loads TPM expression data, reshapes to long format with Treatment
+#' and Replicate columns.
+#'
+#' @param dataset_path Chr. Path to Excel file containing TPM data.
+#' @param sp_abbv Chr. Species abbreviation for column pattern matching.
+#'
+#' @return Tibble with columns: Species, Protein_id, Treatment, Replicate, TPM
 read_tpm <- function(dataset_path, sp_abbv) {
     select_columns <- c("Species", "New_locus_tag", "Old_locus_tag")
 
-    # Build regex pattern: ABBV_Treatment_Replicate (GE) - TPM
     pattern <- paste0(
         "^", sp_abbv, "_(",
         paste(treatment_list, collapse = "|"),
         ")_(\\d+) \\(GE\\) - TPM$"
     )
 
-    data <- read_excel(dataset_path, col_names = TRUE) %>%
+    read_excel(dataset_path, col_names = TRUE) %>%
         select(
             all_of(select_columns),
-            matches(
-                paste0(
-                    "(",
-                    paste(treatment_list, collapse = "|"),
-                    ").*TPM|TPM.*(", paste(treatment_list, collapse = "|"), ")"
-                )
-            )
+            matches(paste0(
+                "(", paste(treatment_list, collapse = "|"), ").*TPM|",
+                "TPM.*(", paste(treatment_list, collapse = "|"), ")"
+            ))
         ) %>%
         mutate(
             New_locus_tag = if_else(
@@ -61,9 +72,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
                 Old_locus_tag,
                 New_locus_tag
             )
-        )
-
-    data %>%
+        ) %>%
         select(-Old_locus_tag) %>%
         rename(Protein_id = New_locus_tag) %>%
         pivot_longer(
@@ -78,115 +87,321 @@ read_tpm <- function(dataset_path, sp_abbv) {
         select(Species, Protein_id, Treatment, Replicate, TPM)
 }
 
+#' Read Essential Genes Vector from Excel
+#'
+#' @description
+#' Loads an essential genes Excel file and returns a flat character vector
+#' of gene IDs.
+#'
+#' @param filepath Chr. Path to essential genes Excel file.
+#'
+#' @return Character vector of essential gene IDs.
+read_essential_vec <- function(filepath) {
+    read_excel(filepath) %>%
+        as.list() %>%
+        unlist() %>%
+        as.vector()
+}
+
+# ============================================================================
+# DATA TRANSFORMATION
+# ============================================================================
+
+#' Compute Global Log2 Mean per Gene
+#'
+#' @description
+#' Computes a single mean log2(value + 1) per Protein_id across ALL
+#' replicates and treatments combined. Matches the behaviour of the
+#' original rowMeans(log2(cols + 1)) approach.
+#'
+#' @param data Tibble. Long-format data with Protein_id and value column.
+#' @param value_col Chr. Name of column containing raw values.
+#' @param out_col Chr. Name of the output mean column.
+#'
+#' @return Tibble with columns: Protein_id, <out_col>
+log2_global_mean <- function(data, value_col, out_col) {
+    data %>%
+        group_by(Protein_id) %>%
+        summarise(
+            !!out_col := mean(log2(!!sym(value_col) + 1), na.rm = TRUE),
+            .groups = "drop"
+        )
+}
+
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
+
+#' Save Plot to PDF and PNG
+#'
+#' @description
+#' Saves a ggplot object to both PDF and PNG at the given filepath (no ext).
+#'
+#' @param plot ggplot object.
+#' @param filepath Chr. Full path without file extension.
+#' @param width Num. Width in inches (default 10).
+#' @param height Num. Height in inches (default 6).
+#'
+#' @return NULL invisibly.
+save_plot <- function(plot, filepath, width = 10, height = 6) {
+    walk(c(".pdf", ".png"), function(ext) {
+        path <- paste0(filepath, ext)
+        ggsave(path, plot = plot, width = width, height = height, dpi = 300)
+        message("Saved: ", path)
+    })
+}
+
+#' Plot Essential vs Non-Essential Gene Expression Distribution
+#'
+#' @description
+#' Overlapping frequency histogram comparing global Log2 mean expression
+#' between essential and non-essential genes, with a two-sided Wilcoxon
+#' p-value matching the original analysis behaviour.
+#'
+#' @param all_df Tibble. All genes with a global Log2 mean column
+#'   (output of log2_global_mean()).
+#' @param essential_vec Chr vector. IDs of essential genes.
+#' @param log2_col Chr. Name of the Log2 mean column in all_df.
+#' @param x_lab Chr. Short label for the data type (e.g. "TPM", "iBAQ").
+#' @param species Chr. Species name for plot title.
+#' @param output_path Chr. Directory for saving output files.
+#'
+#' @return NULL invisibly.
+plot_essential_distribution <- function(
+  all_df, essential_vec, log2_col, x_lab, species, output_path
+) {
+    # Tag each gene and drop non-finite values
+    condition_df <- all_df %>%
+        mutate(
+            group = factor(
+                ifelse(Protein_id %in% essential_vec, "Essential", "Non-Essential"),
+                levels = c("Non-Essential", "Essential")
+            )
+        ) %>%
+        filter(is.finite(.data[[log2_col]]))
+
+    # Two-sided Wilcoxon (matches original wilcox.test(Mean ~ Condition))
+    p_value <- wilcox.test(
+        as.formula(paste(log2_col, "~ group")),
+        data = condition_df
+    )$p.value
+
+    p_label <- sprintf("p-val: %.2e", p_value)
+
+    x_label <- bquote(
+        .(ifelse(x_lab == "TPM", "mRNA", "Protein")) ~
+            "- Mean" ~ .(x_lab) ~ (Log[2])
+    )
+
+    p <- ggplot(
+        condition_df,
+        aes(x = .data[[log2_col]], y = after_stat(density), fill = group)
+    ) +
+        geom_histogram(position = "identity", alpha = 0.5, bins = 40) +
+        scale_fill_manual(
+            values = c("Non-Essential" = "#F4A8A0", "Essential" = "#80CEC8")
+        ) +
+        annotate(
+            "text",
+            x = Inf, y = Inf, label = p_label,
+            hjust = 1.1, vjust = 1.5, size = 3.5, fontface = "italic"
+        ) +
+        labs(
+            title = species,
+            x     = x_label,
+            y     = "Frequency",
+            fill  = NULL
+        ) +
+        theme_minimal() +
+        theme(
+            plot.title      = element_text(face = "italic"),
+            legend.position = c(0.85, 0.85)
+        )
+
+    save_plot(p, file.path(
+        output_path, paste0(species, "_", x_lab, "_essential_distribution")
+    ))
+
+    invisible(NULL)
+}
+
 # ============================================================================
 # MAIN ORCHESTRATION
 # ============================================================================
 
-#' Process Single Species Analysis
+#' Process Single Species Essential Gene Analysis
 #'
 #' @description
-#' Complete pipeline for one species: loads and transforms TPM data,
-#' filters protein quantification tables, computes correlations, and
-#' generates visualizations for multiple quantification measures.
+#' Computes global log2 means for all quantification types and generates
+#' essential vs non-essential distribution plots for each.
 #'
-#' @param essential_file Character. Path to species essential genes Excel file
-#' @param tpm_file Character. Path to species TPM Excel file
-#' @param topN_data Tibble. TopN quantification data (all species)
-#' @param iBAQ_data Tibble. iBAQ quantification data (all species)
-#' @param iBAQ_mc_data Tibble. iBAQ MC quantification data (all species)
-#' @param output_path Character. Directory for saving plots
+#' @param essential_vec Chr vector. Essential gene IDs for this species.
+#' @param tpm_species Tibble. Long-format raw TPM data (output of read_tpm()).
+#' @param intensity_species Tibble. Long-format raw intensity data for this species.
+#' @param RI_species Tibble. Long-format raw RI data for this species.
+#' @param iBAQ_species Tibble. Long-format raw iBAQ data for this species.
+#' @param iBAQ_mc_species Tibble. Long-format raw iBAQ MC data for this species.
+#' @param species Chr. Species name.
+#' @param output_path Chr. Directory for saving plots.
 #'
-#' @return NULL (invisibly). Generates plots and console messages
+#' @return NULL invisibly.
 process_species <- function(
-  essential_vec, tpm_df, RI_data, iBAQ_data, iBAQ_mc_data, output_path
+  essential_vec,
+  tpm_species,
+  intensity_species,
+  RI_species,
+  iBAQ_species,
+  iBAQ_mc_species,
+  species,
+  output_path
 ) {
-    print(essential_vec)
-    print(tpm_df)
-    print(RI_data)
+    # Compute global means (across all treatments + replicates)
+    tpm_df <- log2_global_mean(tpm_species, "TPM", "mean_Log2_TPM")
+    intensity_df <- log2_global_mean(
+        intensity_species, "Intensity", "mean_Log2_intensity"
+    )
+    RI_df <- log2_global_mean(RI_species, "RI", "mean_Log2_RI")
+    iBAQ_df <- log2_global_mean(iBAQ_species, "iBAQ", "mean_Log2_iBAQ")
+    iBAQ_mc_df <- log2_global_mean(iBAQ_mc_species, "iBAQ", "mean_Log2_iBAQ")
+
+    # Generate one plot per quantification type
+    list(
+        list(df = tpm_df, col = "mean_Log2_TPM", lab = "TPM"),
+        list(df = intensity_df, col = "mean_Log2_intensity", lab = "Intensity"),
+        list(df = RI_df, col = "mean_Log2_RI", lab = "RI"),
+        list(df = iBAQ_df, col = "mean_Log2_iBAQ", lab = "iBAQ"),
+        list(df = iBAQ_mc_df, col = "mean_Log2_iBAQ", lab = "iBAQ_mc")
+    ) %>%
+        walk(function(item) {
+            plot_essential_distribution(
+                all_df = item$df,
+                essential_vec = essential_vec,
+                log2_col = item$col,
+                x_lab = item$lab,
+                species = species,
+                output_path = output_path
+            )
+        })
+
+    invisible(NULL)
 }
 
-#' Run the full essential genes analyses
+#' Run Full Essential Genes Analysis
 #'
+#' @description
+#' Loads all data, pairs TPM and essential files per species, and runs
+#' the complete distribution analysis for each species.
 #'
-#' @param output_path  Root output directory.
+#' @param essential_path Chr. Directory containing essential genes Excel files.
+#' @param tpm_path Chr. Directory containing TPM Excel files.
+#' @param RI_path Chr. Path to RI TSV file.
+#' @param iBAQ_path Chr. Path to iBAQ TSV file.
+#' @param iBAQ_mc_path Chr. Path to iBAQ MC TSV file.
+#' @param output_path Chr. Root output directory.
+#'
 #' @return NULL invisibly.
 main_analysis <- function(
-  essential_path, tpm_path, RI_path, iBAQ_path, iBAQ_mc_path, output_path
+  essential_path,
+  tpm_path,
+  intensity_path,
+  RI_path,
+  iBAQ_path,
+  iBAQ_mc_path,
+  output_path
 ) {
-    # Load protein quantification reference tables (contain all species)
-    RI_data <- read_tsv(RI_path,
+    # Load protein quantification tables (all species, long format)
+    intensity_data <- read_tsv(
+        intensity_path,
         col_names = TRUE,
         show_col_types = FALSE,
         skip_empty_rows = TRUE
     )
-    iBAQ_data <- read_tsv(iBAQ_path,
+    RI_data <- read_tsv(
+        RI_path,
         col_names = TRUE,
         show_col_types = FALSE,
         skip_empty_rows = TRUE
     )
-    iBAQ_mc_data <- read_tsv(iBAQ_mc_path,
+    iBAQ_data <- read_tsv(
+        iBAQ_path,
+        col_names = TRUE,
+        show_col_types = FALSE,
+        skip_empty_rows = TRUE
+    )
+    iBAQ_mc_data <- read_tsv(
+        iBAQ_mc_path,
         col_names = TRUE,
         show_col_types = FALSE,
         skip_empty_rows = TRUE
     )
 
+    # File path helpers
     extract_species_tpm <- function(filepath) {
-        tools::file_path_sans_ext(
-            str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+")
-        )
+        tools::file_path_sans_ext(str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+"))
     }
     extract_species_essential <- function(filepath) {
-        species_name <- tools::file_path_sans_ext(
+        key <- tools::file_path_sans_ext(
             str_extract(basename(filepath), "Essential_genes_([A-Za-z]+)", group = 1)
         )
-        species_essential2tpm_map[species_name]
+        species_essential2tpm_map[key]
     }
-    # Build a named list of file pairs, keyed by species
+
+    # Build paired file list keyed by species name
     tpm_files <- list.files(tpm_path, pattern = "\\.xlsx$", full.names = TRUE)
     essential_files <- list.files(essential_path, pattern = "\\.xlsx$", full.names = TRUE)
-    species_files <- map(set_names(map_chr(tpm_files, extract_species_tpm)), function(species) {
-        tpm_idx <- match(species, map_chr(tpm_files, extract_species_tpm))
-        essential_idx <- match(species, map_chr(essential_files, extract_species_essential))
-        list(
-            tpm       = tpm_files[[tpm_idx]],
-            essential = if (!is.na(essential_idx)) essential_files[[essential_idx]] else NULL
-        )
-    })
 
+    tpm_species_names <- map_chr(tpm_files, extract_species_tpm)
+    essential_species_names <- map_chr(essential_files, extract_species_essential)
 
-    # Process each species with error handling
-    results <- lapply(names(species_files), function(species) {
+    species_files <- set_names(tpm_species_names) %>%
+        map(function(species) {
+            list(
+                tpm       = tpm_files[[match(species, tpm_species_names)]],
+                essential = essential_files[[match(species, essential_species_names)]]
+            )
+        })
+
+    # Process each species
+    iwalk(species_files, function(files, species) {
         message("Processing species: ", species)
-        files <- species_files[[species]]
+
         abbv <- species_abbv_map[species]
         if (is.na(abbv)) {
-            warning(
-                "No abbreviation found for species '", species,
-                "', skipping file: ", basename(tpm_file)
-            )
+            warning("No abbreviation found for species '", species, "', skipping.")
             return(invisible(NULL))
         }
-        tpm_df <- read_tpm(files$tpm, abbv) %>%
-            mutate(Species = species) %>%
-            # Update treatment name for consistency ("Mig" to "Hyp")
-            mutate(Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment)) %>%
-            # For Y.pseudotuberculosis: prefix locus tags with 'PI'
-            mutate(Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)) %>%
-            filter(!is.na(Protein_id))
 
-        essential_vec <- as.vector(
-            read_excel(files$essential, col_names = FALSE)
-        ) %>%
-            unlist()
+        # Load raw long-format TPM (no averaging yet)
+        tpm_species <- read_tpm(files$tpm, abbv) %>%
+            mutate(
+                Species    = species,
+                Treatment  = ifelse(Treatment == "Mig", "Hyp", Treatment),
+                Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+            ) %>%
+            filter(!is.na(Protein_id), !is.na(TPM))
+
+        essential_vec <- read_essential_vec(files$essential)
+
+        # Filter quantification data to this species (keep raw for global mean)
+        intensity_species <- intensity_data %>% filter(Species == species)
+        RI_species <- RI_data %>% filter(Species == species)
+        iBAQ_species <- iBAQ_data %>% filter(Species == species)
+        iBAQ_mc_species <- iBAQ_mc_data %>% filter(Species == species)
 
         process_species(
-            essential_vec, tpm_df, RI_data, iBAQ_data, iBAQ_mc_data, output_path
+            essential_vec = essential_vec,
+            tpm_species = tpm_species,
+            intensity_species = intensity_species,
+            RI_species = RI_species,
+            iBAQ_species = iBAQ_species,
+            iBAQ_mc_species = iBAQ_mc_species,
+            species = species,
+            output_path = output_path
         )
     })
 
     message("All species processed.")
 }
-
 
 # ============================================================================
 # ENTRY POINT
@@ -196,12 +411,13 @@ main_analysis <- function(
 #' @return NULL invisibly.
 test_analysis <- function() {
     main_analysis(
-        essential_path  = "DATA/Essential genes",
-        tpm_path        = "DATA/Read_counts/",
-        RI_path         = "Analyses/RI_data.tsv",
-        iBAQ_path       = "Analyses/iBAQ_data.tsv",
-        iBAQ_mc_path    = "Analyses/iBAQ_mc_data.tsv",
-        output_path     = "Analyses"
+        essential_path = "DATA/Essential genes",
+        tpm_path       = "DATA/Read_counts/",
+        intensity_path = "Analyses/Intensity_data.tsv",
+        RI_path        = "Analyses/RI_data.tsv",
+        iBAQ_path      = "Analyses/iBAQ_data.tsv",
+        iBAQ_mc_path   = "Analyses/iBAQ_mc_data.tsv",
+        output_path    = "Analyses"
     )
 }
 
