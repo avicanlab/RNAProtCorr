@@ -388,20 +388,23 @@ RI_computation <- function(tmt_data) {
       Intensity = .data[[col_total_intensity]] * channel_intensity / channel_sum,
       RI = RI_total * (channel_intensity / channel_sum)
     ) %>%
-    group_by(Species, Replicate, Treatment) %>%
+    filter(if_all(c(Intensity, RI), ~ . > 0 & !is.na(.))) %>%
+    group_by(Species, Protein_id, Treatment) %>%
     mutate(
       Intensity_log2 = log2(Intensity),
-      Intensity_log2mean = log2(Intensity) - mean(log2(Intensity), na.rm = TRUE),
+      Intensity_meanlog2 = mean(Intensity_log2, na.rm = TRUE),
+      Intensity_log2ratio = Intensity_log2 - Intensity_meanlog2,
       Intensity_norm = Intensity / sum(Intensity, na.rm = TRUE),
       Intensity_log = 10 + log10(Intensity_norm),
       Intensity_PpB = Intensity_norm * 1e9
     ) %>%
     mutate(
-      RI_log2     = log2(RI),
-      RI_log2mean = log2(RI) - mean(log2(RI), na.rm = TRUE),
-      RI_norm     = RI / sum(RI, na.rm = TRUE),
-      RI_log      = 10 + log10(RI_norm),
-      RI_PpB      = RI_norm * 1e9
+      RI_log2 = log2(RI),
+      RI_meanlog2 = mean(RI_log2, na.rm = TRUE),
+      RI_log2ratio = RI_log2 - RI_meanlog2,
+      RI_norm = RI / sum(RI, na.rm = TRUE),
+      RI_log = 10 + log10(RI_norm),
+      RI_PpB = RI_norm * 1e9
     ) %>%
     ungroup() %>%
     select(-channel_sum, -channel_intensity)
@@ -448,13 +451,14 @@ ibaq_computation <- function(tmt_data, observable_peptides, observable_col = "n_
     mutate(
       iBAQ = iBAQ_total * (channel_intensity / channel_sum)
     ) %>%
-    group_by(Species, Replicate) %>%
+    group_by(Species, Protein_id, Treatment) %>%
     mutate(
-      iBAQ_log2      = log2(iBAQ),
-      iBAQ_log2_mean = log2(iBAQ) - mean(log2(iBAQ), na.rm = TRUE),
-      riBAQ          = iBAQ / sum(iBAQ, na.rm = TRUE),
-      iBAQ_log       = 10 + log10(riBAQ),
-      iBAQ_PpB       = riBAQ * 1e9
+      iBAQ_log2 = log2(iBAQ),
+      iBAQ_meanlog2 = mean(iBAQ_log2, na.rm = TRUE),
+      iBAQ_log2ratio = log2(iBAQ) - iBAQ_meanlog2,
+      riBAQ = iBAQ / sum(iBAQ, na.rm = TRUE),
+      iBAQ_log = 10 + log10(riBAQ),
+      iBAQ_PpB = riBAQ * 1e9
     ) %>%
     ungroup()
 }
@@ -516,29 +520,72 @@ main_analysis <- function(tmt_path, fasta_path, metadata_path, output_path) {
 
   # --- TopN quantification ---
   RI_data <- RI_computation(unified_filtered_tmt)
+  RI_completeness_result <- filter_complete_proteins(RI_data)
+  RI_filtered_tmt <- RI_completeness_result$filtered_data
+  RI_removed_proteins <- RI_completeness_result$removed_proteins
+
+  if (nrow(RI_removed_proteins) > 0) {
+    write.table(
+      RI_removed_proteins %>% arrange(Species, Protein_id),
+      paste0(output_path, "RI_removed_proteins_incomplete.tsv"),
+      sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message("RI Removed proteins written to: removed_proteins_incomplete.tsv\n")
+  }
 
   # --- In silico digest ---
   fasta_files <- list.files(fasta_path, pattern = "\\.fa$", full.names = TRUE)
   protein2tryptic <- process_tryptic(fasta_files, output_path)
 
   # --- iBAQ quantification ---
-  iBAQ_data <- ibaq_computation(unified_tmt, protein2tryptic, "n_tryptic")
-  iBAQ_mc_data <- ibaq_computation(unified_tmt, protein2tryptic, "n_tryptic_mc")
+  iBAQ_data <- ibaq_computation(unified_filtered_tmt, protein2tryptic, "n_tryptic")
+  iBAQ_completeness_result <- filter_complete_proteins(iBAQ_data)
+  iBAQ_filtered_tmt <- iBAQ_completeness_result$filtered_data
+  iBAQ_removed_proteins <- iBAQ_completeness_result$removed_proteins
 
+  if (nrow(iBAQ_removed_proteins) > 0) {
+    write.table(
+      iBAQ_removed_proteins %>% arrange(Species, Protein_id),
+      paste0(output_path, "iBAQ_removed_proteins_incomplete.tsv"),
+      sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message("iBAQ Removed proteins written to: removed_proteins_incomplete.tsv\n")
+  }
+
+  iBAQ_mc_data <- ibaq_computation(unified_filtered_tmt, protein2tryptic, "n_tryptic_mc")
+  iBAQ_mc_completeness_result <- filter_complete_proteins(iBAQ_mc_data)
+  iBAQ_mc_filtered_tmt <- iBAQ_mc_completeness_result$filtered_data
+  iBAQ_mc_removed_proteins <- iBAQ_mc_completeness_result$removed_proteins
+
+  if (nrow(iBAQ_mc_removed_proteins) > 0) {
+    write.table(
+      iBAQ_mc_removed_proteins %>% arrange(Species, Protein_id),
+      paste0(output_path, "iBAQ_mc_removed_proteins_incomplete.tsv"),
+      sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message("iBAQ mc Removed proteins written to: removed_proteins_incomplete.tsv\n")
+  }
   # --- Write outputs ---
   write_tsv_table(
     RI_data %>% select(
       Species, Replicate, Protein_id, Treatment, total_intensity,
-      Intensity, Intensity_log2, Intensity_log2mean,
-      Intensity_norm, Intensity_log, Intensity_PpB,
-      RI, RI_log2, RI_log2mean, RI_norm, RI_log, RI_PpB
+      Intensity, Intensity_log2, Intensity_meanlog2,
+      Intensity_norm, Intensity_log, Intensity_PpB
+    ),
+    output_path, "Intensity_data.tsv"
+  )
+
+  write_tsv_table(
+    RI_data %>% select(
+      Species, Replicate, Protein_id, Treatment, total_intensity,
+      RI, RI_log2, RI_meanlog2, RI_norm, RI_log, RI_PpB
     ),
     output_path, "RI_data.tsv"
   )
 
   ibaq_cols <- c(
     "Species", "Replicate", "Protein_id", "Treatment",
-    "iBAQ", "iBAQ_log2", "iBAQ_log2_mean", "riBAQ", "iBAQ_log", "iBAQ_PpB"
+    "iBAQ", "iBAQ_log2", "iBAQ_meanlog2", "riBAQ", "iBAQ_log", "iBAQ_PpB"
   )
 
   write_tsv_table(iBAQ_data %>% select(all_of(ibaq_cols)), output_path, "iBAQ_data.tsv")

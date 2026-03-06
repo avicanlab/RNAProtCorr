@@ -157,9 +157,10 @@ read_tpm <- function(dataset_path, sp_abbv) {
 #' @return Tibble with mean_log2 values per protein-treatment combination
 log2_transform <- function(data, value_col) {
     data %>%
+        filter(.data[[value_col]] > 0) %>%
         group_by(Protein_id, Treatment) %>%
         summarise(
-            mean_log2 = mean(log2(!!sym(value_col) + 1), na.rm = TRUE),
+            mean_log2 = mean(log2(!!sym(value_col)), na.rm = TRUE),
             .groups = "drop"
         )
 }
@@ -578,7 +579,9 @@ process_correlation_vs_exposure_time <- function(results, output_path) {
 #' @param output_path Character. Directory for saving plots
 #'
 #' @return NULL (invisibly). Generates plots and console messages
-process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_path) {
+process_species <- function(
+  tpm_file, intensity_data, RI_data, iBAQ_data, iBAQ_mc_data, output_path
+) {
     # Extract species name from filename
     species_name <- tools::file_path_sans_ext(
         str_extract(basename(tpm_file), "^[A-Za-z]+_[A-Za-z]+")
@@ -605,6 +608,8 @@ process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_p
         rename(mean_Log2_TPM = mean_log2)
 
     # Filter protein quantification data to current species
+    intensity_species <- intensity_data %>%
+        filter(Species == species_name)
     RI_species <- RI_data %>%
         filter(Species == species_name)
     iBAQ_species <- iBAQ_data %>%
@@ -612,52 +617,28 @@ process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_p
     iBAQ_mc_species <- iBAQ_mc_data %>%
         filter(Species == species_name)
 
-    # Guard: skip if no matched data
-    if (nrow(RI_species) == 0 &&
-        nrow(iBAQ_species) == 0 &&
-        nrow(iBAQ_mc_species) == 0) {
-        warning("No data found for species: ", species_name, " — skipping.")
-        return(invisible(NULL))
-    }
-
     # ---- TOTAL INTENSITY ----
-    if (nrow(RI_species) > 0) {
-        intensity_species <- RI_species %>%
-            log2_transform(value_col = "Intensity") %>%
-            rename(mean_Log2_intensity = mean_log2)
-
-        corr_intensity <- calculate_correlation(tpm_species, intensity_species, "mean_Log2_intensity")
-        plot_correlation(corr_intensity, "mean_Log2_intensity", "Intensity", species_name, output_path)
+    if (nrow(intensity_species) > 0) {
+        corr_intensity <- calculate_correlation(tpm_species, intensity_species, "Intensity_meanlog2")
+        plot_correlation(corr_intensity, "Intensity_meanlog2", "Intensity", species_name, output_path)
     }
 
     # ---- TOP-N QUANTIFICATION ----
     if (nrow(RI_species) > 0) {
-        RI_transformed <- RI_species %>%
-            log2_transform(value_col = "RI") %>%
-            rename(mean_Log2_RI = mean_log2)
-
-        corr_RI <- calculate_correlation(tpm_species, RI_transformed, "mean_Log2_RI")
-        plot_correlation(corr_RI, "mean_Log2_RI", "RI", species_name, output_path)
+        corr_RI <- calculate_correlation(tpm_species, RI_species, "RI_meanlog2")
+        plot_correlation(corr_RI, "RI_meanlog2", "RI", species_name, output_path)
     }
 
     # ---- iBAQ QUANTIFICATION ----
     if (nrow(iBAQ_species) > 0) {
-        iBAQ_transformed <- iBAQ_species %>%
-            log2_transform(value_col = "iBAQ") %>%
-            rename(mean_Log2_iBAQ = mean_log2)
-
-        corr_iBAQ <- calculate_correlation(tpm_species, iBAQ_transformed, "mean_Log2_iBAQ")
-        plot_correlation(corr_iBAQ, "mean_Log2_iBAQ", "iBAQ", species_name, output_path)
+        corr_iBAQ <- calculate_correlation(tpm_species, iBAQ_species, "iBAQ_meanlog2")
+        plot_correlation(corr_iBAQ, "iBAQ_meanlog2", "iBAQ", species_name, output_path)
     }
 
     # ---- iBAQ MC QUANTIFICATION ----
     if (nrow(iBAQ_mc_species) > 0) {
-        iBAQ_mc_transformed <- iBAQ_mc_species %>%
-            log2_transform(value_col = "iBAQ") %>%
-            rename(mean_Log2_iBAQ = mean_log2)
-
-        corr_iBAQ_mc <- calculate_correlation(tpm_species, iBAQ_mc_transformed, "mean_Log2_iBAQ")
-        plot_correlation(corr_iBAQ_mc, "mean_Log2_iBAQ", "iBAQ_MC", species_name, output_path)
+        corr_iBAQ_mc <- calculate_correlation(tpm_species, iBAQ_mc_species, "iBAQ_meanlog2")
+        plot_correlation(corr_iBAQ_mc, "iBAQ_meanlog2", "iBAQ_MC", species_name, output_path)
     }
 
     message("Done: ", species_name)
@@ -685,8 +666,16 @@ process_species <- function(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_p
 #' @param output_path Character. Directory for saving outputs
 #'
 #' @return NULL (invisibly). Generates console output and plot files
-main_analysis <- function(TPM_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
+main_analysis <- function(
+  TPM_PATH, Intensity_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path
+) {
     # Load protein quantification reference tables (contain all species)
+    intensity_data <- read_tsv(Intensity_PATH,
+        col_names = TRUE,
+        show_col_types = FALSE,
+        skip_empty_rows = TRUE
+    )
+
     RI_data <- read_tsv(RI_PATH,
         col_names = TRUE,
         show_col_types = FALSE,
@@ -711,7 +700,14 @@ main_analysis <- function(TPM_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_pat
     lapply(tpm_files, function(tpm_file) {
         tryCatch(
             {
-                result <- process_species(tpm_file, RI_data, iBAQ_data, iBAQ_mc_data, output_path)
+                result <- process_species(
+                    tpm_file,
+                    intensity_data,
+                    RI_data,
+                    iBAQ_data,
+                    iBAQ_mc_data,
+                    output_path
+                )
                 results[[result$species_name]] <<- result
             },
             error = function(e) {
@@ -744,6 +740,7 @@ main_analysis <- function(TPM_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_pat
 test_analysis <- function() {
     main_analysis(
         "DATA/Read_counts/",
+        "Analyses/Intensity_data.tsv",
         "Analyses/RI_data.tsv",
         "Analyses/iBAQ_data.tsv",
         "Analyses/iBAQ_mc_data.tsv",
