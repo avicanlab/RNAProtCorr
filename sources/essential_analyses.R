@@ -352,7 +352,7 @@ plot_essential_vs_all_correlation <- function(
 #'
 #' @return NULL invisibly.
 plot_sd_distribution <- function(
-  all_df, essential_vec, sd_col, x_lab, species, output_path
+  all_df, essential_vec, sd_col, x_lab, species, output_path, is_tpm = FALSE
 ) {
     condition_df <- all_df %>%
         mutate(
@@ -367,6 +367,12 @@ plot_sd_distribution <- function(
         as.formula(paste(sd_col, "~ group")),
         data = condition_df
     )$p.value
+
+    x_label <- if (is_tpm) {
+        bquote("Standard deviation of mRNA - " ~ log[2](mean ~ TPM))
+    } else {
+        bquote("Standard deviation of protein - " ~ log[2](mean ~ .(x_lab)))
+    }
 
     p <- ggplot(
         condition_df,
@@ -392,7 +398,7 @@ plot_sd_distribution <- function(
         ) +
         labs(
             title = bquote(italic(.(gsub("_", " ", species)))),
-            x     = bquote("SD" ~ .(x_lab) ~ (Log[2])),
+            x     = x_label,
             y     = "Frequency",
             color = NULL
         ) +
@@ -441,29 +447,48 @@ process_species <- function(
   iBAQ_species,
   iBAQ_mc_species,
   species,
-  output_path
+  output_path,
+  pseudocount = FALSE, # set TRUE to reproduce old results
+  common_ids_only = FALSE # set TRUE to restrict to genes in both TPM and proteomics
 ) {
-    # --- Compute global means (across all treatments + replicates) ----------
-    # TPM uses pseudocount (+1), proteomics excludes zeros
-    tpm_mean <- log2_global_mean(tpm_species, "TPM", "mean_Log2_TPM", pseudocount = TRUE)
-    intensity_mean <- log2_global_mean(intensity_species, "Intensity", "mean_Log2_intensity", pseudocount = FALSE)
-    RI_mean <- log2_global_mean(RI_species, "RI", "mean_Log2_RI", pseudocount = FALSE)
-    iBAQ_mean <- log2_global_mean(iBAQ_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = FALSE)
-    iBAQ_mc_mean <- log2_global_mean(iBAQ_mc_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = FALSE)
+    # --- Optionally filter to common IDs across all datasets ----------------
+    if (common_ids_only) {
+        common_ids <- Reduce(intersect, list(
+            tpm_species %>% pull(Protein_id) %>% unique(),
+            intensity_species %>% pull(Protein_id) %>% unique(),
+            iBAQ_species %>% pull(Protein_id) %>% unique(),
+            iBAQ_mc_species %>% pull(Protein_id) %>% unique()
+        ))
+        message("  Common IDs across all datasets: ", length(common_ids))
 
-    # --- Compute log2 mean SDs -------------------------------------------------
+        tpm_species <- tpm_species %>% filter(Protein_id %in% common_ids)
+        intensity_species <- intensity_species %>% filter(Protein_id %in% common_ids)
+        RI_species <- RI_species %>% filter(Protein_id %in% common_ids)
+        iBAQ_species <- iBAQ_species %>% filter(Protein_id %in% common_ids)
+        iBAQ_mc_species <- iBAQ_mc_species %>% filter(Protein_id %in% common_ids)
+    }
+
+    # --- Compute global means -----------------------------------------------
+    tpm_mean <- log2_global_mean(tpm_species, "TPM", "mean_Log2_TPM", pseudocount = TRUE)
+    intensity_mean <- log2_global_mean(intensity_species, "Intensity", "mean_Log2_intensity", pseudocount = pseudocount)
+    RI_mean <- log2_global_mean(RI_species, "RI", "mean_Log2_RI", pseudocount = pseudocount)
+    iBAQ_mean <- log2_global_mean(iBAQ_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = pseudocount)
+    iBAQ_mc_mean <- log2_global_mean(iBAQ_mc_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = pseudocount)
+
+    # --- Compute global SDs -------------------------------------------------
     tpm_sd <- log2_mean_sd(tpm_species, "TPM", "sd_Log2_TPM", pseudocount = TRUE)
-    intensity_sd <- log2_mean_sd(intensity_species, "Intensity", "sd_Log2_intensity", pseudocount = FALSE)
-    RI_sd <- log2_mean_sd(RI_species, "RI", "sd_Log2_RI", pseudocount = FALSE)
-    iBAQ_sd <- log2_mean_sd(iBAQ_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = FALSE)
-    iBAQ_mc_sd <- log2_mean_sd(iBAQ_mc_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = FALSE)
+    intensity_sd <- log2_mean_sd(intensity_species, "Intensity", "sd_Log2_intensity", pseudocount = pseudocount)
+    RI_sd <- log2_mean_sd(RI_species, "RI", "sd_Log2_RI", pseudocount = pseudocount)
+    iBAQ_sd <- log2_mean_sd(iBAQ_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = pseudocount)
+    iBAQ_mc_sd <- log2_mean_sd(iBAQ_mc_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = pseudocount)
+
     # --- Distribution plots (mean) ------------------------------------------
     list(
-        list(df = tpm_mean, col = "mean_Log2_TPM", lab = "TPM"),
-        list(df = intensity_mean, col = "mean_Log2_intensity", lab = "Intensity"),
-        list(df = RI_mean, col = "mean_Log2_RI", lab = "RI"),
-        list(df = iBAQ_mean, col = "mean_Log2_iBAQ", lab = "iBAQ"),
-        list(df = iBAQ_mc_mean, col = "mean_Log2_iBAQ", lab = "iBAQ_mc")
+        list(df = tpm_mean, col = "mean_Log2_TPM", lab = "TPM", is_tpm = TRUE),
+        list(df = intensity_mean, col = "mean_Log2_intensity", lab = "Intensity", is_tpm = FALSE),
+        list(df = RI_mean, col = "mean_Log2_RI", lab = "RI", is_tpm = FALSE),
+        list(df = iBAQ_mean, col = "mean_Log2_iBAQ", lab = "iBAQ", is_tpm = FALSE),
+        list(df = iBAQ_mc_mean, col = "mean_Log2_iBAQ", lab = "iBAQ_mc", is_tpm = FALSE)
     ) %>%
         walk(~ plot_essential_distribution(
             all_df        = .x$df,
@@ -476,17 +501,18 @@ process_species <- function(
 
     # --- SD distribution plots ----------------------------------------------
     list(
-        list(df = tpm_sd, col = "sd_Log2_TPM", lab = "TPM"),
-        list(df = intensity_sd, col = "sd_Log2_intensity", lab = "Intensity"),
-        list(df = RI_sd, col = "sd_Log2_RI", lab = "RI"),
-        list(df = iBAQ_sd, col = "sd_Log2_iBAQ", lab = "iBAQ"),
-        list(df = iBAQ_mc_sd, col = "sd_Log2_iBAQ", lab = "iBAQ_mc")
+        list(df = tpm_sd, col = "sd_Log2_TPM", lab = "TPM", is_tpm = TRUE),
+        list(df = intensity_sd, col = "sd_Log2_intensity", lab = "Intensity", is_tpm = FALSE),
+        list(df = RI_sd, col = "sd_Log2_RI", lab = "RI", is_tpm = FALSE),
+        list(df = iBAQ_sd, col = "sd_Log2_iBAQ", lab = "iBAQ", is_tpm = FALSE),
+        list(df = iBAQ_mc_sd, col = "sd_Log2_iBAQ", lab = "iBAQ_mc", is_tpm = FALSE)
     ) %>%
         walk(~ plot_sd_distribution(
             all_df        = .x$df,
             essential_vec = essential_vec,
             sd_col        = .x$col,
             x_lab         = .x$lab,
+            is_tpm        = .x$is_tpm,
             species       = species,
             output_path   = output_path
         ))
@@ -539,7 +565,9 @@ main_analysis <- function(
   RI_path,
   iBAQ_path,
   iBAQ_mc_path,
-  output_path
+  output_path,
+  pseudocount = FALSE, # set TRUE to reproduce old results
+  common_ids_only = FALSE # set TRUE to restrict to common genes
 ) {
     # Load protein quantification tables (all species, long format)
     intensity_data <- read_tsv(
@@ -621,14 +649,16 @@ main_analysis <- function(
         iBAQ_mc_species <- iBAQ_mc_data %>% filter(Species == species)
 
         process_species(
-            essential_vec = essential_vec,
-            tpm_species = tpm_species,
+            essential_vec     = essential_vec,
+            tpm_species       = tpm_species,
             intensity_species = intensity_species,
-            RI_species = RI_species,
-            iBAQ_species = iBAQ_species,
-            iBAQ_mc_species = iBAQ_mc_species,
-            species = species,
-            output_path = output_path
+            RI_species        = RI_species,
+            iBAQ_species      = iBAQ_species,
+            iBAQ_mc_species   = iBAQ_mc_species,
+            species           = species,
+            output_path       = output_path,
+            pseudocount       = pseudocount, # passed through
+            common_ids_only   = common_ids_only # passed through
         )
     })
 
@@ -643,13 +673,15 @@ main_analysis <- function(
 #' @return NULL invisibly.
 test_analysis <- function() {
     main_analysis(
-        essential_path = "DATA/Essential genes",
-        tpm_path       = "DATA/Read_counts/",
-        intensity_path = "Analyses/Intensity_data.tsv",
-        RI_path        = "Analyses/RI_data.tsv",
-        iBAQ_path      = "Analyses/iBAQ_data.tsv",
-        iBAQ_mc_path   = "Analyses/iBAQ_mc_data.tsv",
-        output_path    = "Analyses"
+        essential_path  = "DATA/Essential genes",
+        tpm_path        = "DATA/Read_counts/",
+        intensity_path  = "Analyses/Intensity_data.tsv",
+        RI_path         = "Analyses/RI_data.tsv",
+        iBAQ_path       = "Analyses/iBAQ_data.tsv",
+        iBAQ_mc_path    = "Analyses/iBAQ_mc_data.tsv",
+        output_path     = "Analyses",
+        pseudocount     = FALSE, # match old +1 behaviour
+        common_ids_only = TRUE # match old SA_common_IDs filter
     )
 }
 

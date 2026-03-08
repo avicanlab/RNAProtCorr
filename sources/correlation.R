@@ -49,13 +49,12 @@ treatment_to_exposure_time <- c(
     "Tm"   = 20
 )
 
-
 #' Exposure Time Label Mapping
 #' Maps numeric exposure times (minutes) to display labels
 EXPOSURE_TIME_LABELS <- c(
-    "10" = "10",
-    "20" = "20 min",
-    "30" = "30 min",
+    "10"  = "10",
+    "20"  = "20 min",
+    "30"  = "30 min",
     "240" = "4 hours",
     "241" = "\u22654 hours"
 )
@@ -82,6 +81,7 @@ TREATMENT_SHAPES <- c(
     "Sp"   = 23,
     "Tm"   = 2
 )
+
 # ============================================================================
 # TPM DATA LOADING AND PROCESSING
 # ============================================================================
@@ -108,7 +108,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
     )
 
     data <- read_excel(dataset_path, col_names = TRUE) %>%
-        select(
+        dplyr::select(
             all_of(select_columns),
             matches(
                 paste0(
@@ -127,7 +127,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
         )
 
     data %>%
-        select(-Old_locus_tag) %>%
+        dplyr::select(-Old_locus_tag) %>%
         rename(Protein_id = New_locus_tag) %>%
         pivot_longer(
             cols      = -c(Species, Protein_id),
@@ -138,7 +138,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
             Treatment = str_match(col_name, pattern)[, 2],
             Replicate = str_match(col_name, pattern)[, 3]
         ) %>%
-        select(Species, Protein_id, Treatment, Replicate, TPM)
+        dplyr::select(Species, Protein_id, Treatment, Replicate, TPM)
 }
 
 # ============================================================================
@@ -149,18 +149,23 @@ read_tpm <- function(dataset_path, sp_abbv) {
 #'
 #' @description
 #' Computes mean log2-transformed values grouped by Protein_id and Treatment.
-#' Adds pseudocount of 1 to handle zero values.
+#' Zeros are excluded before transformation (not detected).
+#' Use pseudocount = TRUE for TPM/RNA data to keep zero-expressed genes.
 #'
 #' @param data Tibble with expression data
 #' @param value_col Character. Name of column containing raw values
+#' @param pseudocount Logical. If TRUE adds +1 before log2 (for TPM). Default FALSE.
 #'
 #' @return Tibble with mean_log2 values per protein-treatment combination
-log2_transform <- function(data, value_col) {
+log2_transform <- function(data, value_col, pseudocount = FALSE) {
     data %>%
         filter(.data[[value_col]] > 0) %>%
         group_by(Protein_id, Treatment) %>%
         summarise(
-            mean_log2 = mean(log2(!!sym(value_col)), na.rm = TRUE),
+            mean_log2 = mean(
+                log2(!!sym(value_col) + if (pseudocount) 1 else 0),
+                na.rm = TRUE
+            ),
             .groups = "drop"
         )
 }
@@ -190,13 +195,16 @@ calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
                 mean_Log2_TPM,
                 .data[[mean_protQ_col]],
                 method = "pearson",
-                use = "complete.obs"
+                use    = "complete.obs"
             ),
-            p_value = cor.test(
-                mean_Log2_TPM,
-                .data[[mean_protQ_col]],
-                method = "pearson"
-            )$p.value,
+            p_value = tryCatch(
+                cor.test(
+                    mean_Log2_TPM,
+                    .data[[mean_protQ_col]],
+                    method = "pearson"
+                )$p.value,
+                error = function(e) NA_real_
+            ),
             .groups = "drop"
         ) %>%
         mutate(
@@ -294,23 +302,12 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name,
         geom_point(aes(colour = density), alpha = 0.6, size = 1.2) +
         scale_colour_gradientn(
             colours = c(
-                "#c8d8e8",
-                "#a8d8ea",
-                "#8B7BB5",
-                "#6B3A6B",
-                "#8B2020",
-                "#C0392B",
-                "#e8c8cc",
-                "#c8d8e8"
+                "#c8d8e8", "#a8d8ea", "#8B7BB5", "#6B3A6B",
+                "#8B2020", "#C0392B", "#e8c8cc", "#c8d8e8"
             ),
             name = "counts"
         ) +
-        geom_smooth(
-            method = "lm",
-            se = FALSE,
-            colour = "red",
-            linewidth = 0.8
-        ) +
+        geom_smooth(method = "lm", se = FALSE, colour = "red", linewidth = 0.8) +
         geom_text(
             data = label_df,
             aes(x = x, y = y, label = label),
@@ -320,38 +317,28 @@ plot_correlation <- function(correlation_df, mean_protQ_col, protQ_name,
         ) +
         facet_wrap(~Treatment, scales = "free", ncol = 6) +
         labs(
-            x = "Mean TPM (log2)",
-            y = paste("Mean", protQ_name, "(log2)", sep = " "),
+            x     = "Mean TPM (log2)",
+            y     = paste("Mean", protQ_name, "(log2)", sep = " "),
             title = species
         ) +
         theme_bw(base_size = 10) +
         theme(
-            plot.title = element_text(face = "italic"),
-            strip.background = element_blank(),
-            strip.text = element_text(hjust = 0, face = "bold"),
-            panel.grid.minor = element_blank(),
-            legend.position = "right"
+            plot.title        = element_text(face = "italic"),
+            strip.background  = element_blank(),
+            strip.text        = element_text(hjust = 0, face = "bold"),
+            panel.grid.minor  = element_blank(),
+            legend.position   = "right"
         )
 
-    # Construct output filename
     filename <- paste0(
         output_path, "/",
         paste(species, "TPM", protQ_name, "correlation_panels", sep = "_")
     )
 
-    # Save plots
-    ggsave(
-        paste0(filename, ".pdf"),
-        plot = p,
-        width = 24, height = 6, units = "in", dpi = 300
-    )
+    ggsave(paste0(filename, ".pdf"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
     message("Saved: ", paste0(filename, ".pdf"))
 
-    ggsave(
-        paste0(filename, ".png"),
-        plot = p,
-        width = 24, height = 6, units = "in", dpi = 300
-    )
+    ggsave(paste0(filename, ".png"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
     message("Saved: ", paste0(filename, ".png"))
 }
 
@@ -379,8 +366,8 @@ build_exposure_time_df <- function(results) {
             sp[[meas_name]] %>%
                 distinct(Treatment, R) %>%
                 mutate(
-                    species      = sp$species_name,
-                    measurement  = meas_name
+                    species     = sp$species_name,
+                    measurement = meas_name
                 )
         })
     }) %>%
@@ -424,7 +411,7 @@ compute_exposure_correlations <- function(df) {
 #'
 #' @description
 #' Computes x/y coordinates for placing the correlation label at the
-#' top-right corner of the plot, then joins the stat label text.
+#' top-right corner of the plot, in the expanded zone above the data.
 #'
 #' @param df Tibble. Filtered to a single measurement. Must contain
 #'   columns: exposure_label (factor), R (dbl).
@@ -440,7 +427,7 @@ build_label_position <- function(df, stats) {
         x = last(levels(df$exposure_label)),
         y = y_max + y_range * 0.15
     ) %>%
-        bind_cols(stats %>% select(label))
+        bind_cols(stats %>% dplyr::select(label))
 }
 
 # --- Plotting ----------------------------------------------------------------
@@ -460,11 +447,7 @@ build_label_position <- function(df, stats) {
 #' @return ggplot object
 build_exposure_plot <- function(df, label_pos, title) {
     ggplot(df, aes(x = exposure_label, y = R, fill = species)) +
-        geom_star(
-            aes(starshape = Treatment),
-            size = 3,
-            alpha = 0.8
-        ) +
+        geom_star(aes(starshape = Treatment), size = 3, alpha = 0.8) +
         scale_starshape_manual(values = TREATMENT_SHAPES) +
         geom_label(
             data = label_pos,
@@ -475,13 +458,13 @@ build_exposure_plot <- function(df, label_pos, title) {
             family = "mono",
             color = "black",
             fill = "white",
-            label.color = "black", # box border color
-            label.size = 0.4, # border thickness
+            label.color = "black",
+            label.size = 0.4,
             label.padding = unit(0.4, "lines"),
             inherit.aes = FALSE
         ) +
         scale_y_continuous(
-            expand = expansion(mult = c(0.05, 0.1)) # 10% extra space on top
+            expand = expansion(mult = c(0.05, 0.25))
         ) +
         labs(
             title = title,
@@ -571,6 +554,7 @@ process_correlation_vs_exposure_time <- function(results, output_path) {
 
     invisible(df)
 }
+
 # ============================================================================
 # MAIN ORCHESTRATION
 # ============================================================================
@@ -583,20 +567,30 @@ process_correlation_vs_exposure_time <- function(results, output_path) {
 #' generates visualizations for multiple quantification measures.
 #'
 #' @param tpm_file Character. Path to species TPM Excel file
-#' @param topN_data Tibble. TopN quantification data (all species)
+#' @param intensity_data Tibble. Total intensity quantification data (all species)
+#' @param RI_data Tibble. RI quantification data (all species)
 #' @param iBAQ_data Tibble. iBAQ quantification data (all species)
 #' @param iBAQ_mc_data Tibble. iBAQ MC quantification data (all species)
 #' @param output_path Character. Directory for saving plots
+#' @param pseudocount Logical. If TRUE adds +1 to proteomics log2 transform,
+#'   matching legacy behaviour. Default FALSE (biologically correct).
+#' @param common_ids_only Logical. If TRUE restricts analysis to genes detected
+#'   in both TPM and all proteomics datasets, matching legacy behaviour.
+#'   Default FALSE.
 #'
-#' @return NULL (invisibly). Generates plots and console messages
+#' @return List with species_name, tpm_raw, tpm_data, and corr_* tibbles.
+#'   Returns NULL invisibly on failure.
 process_species <- function(
-  tpm_file, intensity_data, RI_data, iBAQ_data, iBAQ_mc_data, output_path
+  tpm_file, intensity_data, RI_data, iBAQ_data, iBAQ_mc_data, output_path,
+  pseudocount = FALSE,
+  common_ids_only = FALSE
 ) {
     # Extract species name from filename
     species_name <- tools::file_path_sans_ext(
         str_extract(basename(tpm_file), "^[A-Za-z]+_[A-Za-z]+")
     )
     message("Processing species: ", species_name)
+
     # Look up species abbreviation
     abbv <- species_abbv_map[species_name]
     if (is.na(abbv)) {
@@ -606,34 +600,70 @@ process_species <- function(
         )
         return(invisible(NULL))
     }
-    # Load and transform TPM data
-    tpm_species <- read_tpm(tpm_file, abbv) %>%
-        mutate(Species = species_name) %>%
-        # Update treatment name for consistency ("Mig" to "Hyp")
-        mutate(Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment)) %>%
-        # For Y.pseudotuberculosis: prefix locus tags with 'PI'
-        mutate(Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)) %>%
-        filter(!is.na(Protein_id)) %>%
-        log2_transform(value_col = "TPM") %>%
-        rename(mean_Log2_TPM = mean_log2)
+
+    # Load raw TPM (before averaging — kept for downstream use)
+    tpm_raw <- read_tpm(tpm_file, abbv) %>%
+        mutate(
+            Species    = species_name,
+            Treatment  = ifelse(Treatment == "Mig", "Hyp", Treatment),
+            Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+        ) %>%
+        filter(!is.na(Protein_id), !is.na(TPM))
 
     # Filter protein quantification data to current species
-    intensity_species <- intensity_data %>%
-        filter(Species == species_name)
-    RI_species <- RI_data %>%
-        filter(Species == species_name)
-    iBAQ_species <- iBAQ_data %>%
-        filter(Species == species_name)
-    iBAQ_mc_species <- iBAQ_mc_data %>%
-        filter(Species == species_name)
+    intensity_species <- intensity_data %>% filter(Species == species_name)
+    RI_species <- RI_data %>% filter(Species == species_name)
+    iBAQ_species <- iBAQ_data %>% filter(Species == species_name)
+    iBAQ_mc_species <- iBAQ_mc_data %>% filter(Species == species_name)
+
+    # Guard: skip if no matched data across all sources
+    if (nrow(intensity_species) == 0 &&
+        nrow(RI_species) == 0 &&
+        nrow(iBAQ_species) == 0 &&
+        nrow(iBAQ_mc_species) == 0) {
+        warning("No quantification data found for species: ", species_name, " — skipping.")
+        return(invisible(NULL))
+    }
+
+    # Optionally restrict to genes detected in both TPM and proteomics
+    if (common_ids_only) {
+        prot_ids <- Reduce(union, list(
+            intensity_species %>% pull(Protein_id) %>% unique(),
+            RI_species %>% pull(Protein_id) %>% unique(),
+            iBAQ_species %>% pull(Protein_id) %>% unique(),
+            iBAQ_mc_species %>% pull(Protein_id) %>% unique()
+        ))
+        common_ids <- intersect(
+            tpm_raw %>% pull(Protein_id) %>% unique(),
+            prot_ids
+        )
+        message("  Common IDs (TPM ∩ proteomics): ", length(common_ids))
+
+        tpm_raw <- tpm_raw %>% filter(Protein_id %in% common_ids)
+        intensity_species <- intensity_species %>% filter(Protein_id %in% common_ids)
+        RI_species <- RI_species %>% filter(Protein_id %in% common_ids)
+        iBAQ_species <- iBAQ_species %>% filter(Protein_id %in% common_ids)
+        iBAQ_mc_species <- iBAQ_mc_species %>% filter(Protein_id %in% common_ids)
+    }
+
+    # Log2-averaged TPM for correlation analysis
+    # TPM always uses pseudocount (+1) regardless of the pseudocount argument
+    tpm_species <- tpm_raw %>%
+        log2_transform(value_col = "TPM", pseudocount = TRUE) %>%
+        rename(mean_Log2_TPM = mean_log2)
+
+    # Initialise correlation results as NULL (safe default for return list)
+    corr_intensity <- corr_RI <- corr_iBAQ <- corr_iBAQ_mc <- NULL
 
     # ---- TOTAL INTENSITY ----
     if (nrow(intensity_species) > 0) {
-        corr_intensity <- calculate_correlation(tpm_species, intensity_species, "Intensity_meanlog2")
+        corr_intensity <- calculate_correlation(
+            tpm_species, intensity_species, "Intensity_meanlog2"
+        )
         plot_correlation(corr_intensity, "Intensity_meanlog2", "Intensity", species_name, output_path)
     }
 
-    # ---- TOP-N QUANTIFICATION ----
+    # ---- RI QUANTIFICATION ----
     if (nrow(RI_species) > 0) {
         corr_RI <- calculate_correlation(tpm_species, RI_species, "RI_meanlog2")
         plot_correlation(corr_RI, "RI_meanlog2", "RI", species_name, output_path)
@@ -652,14 +682,16 @@ process_species <- function(
     }
 
     message("Done: ", species_name)
-    return(list(
-        species_name = species_name,
-        tpm_data = tpm_species,
+
+    list(
+        species_name   = species_name,
+        tpm_raw        = tpm_raw, # raw long-format TPM for downstream use
+        tpm_data       = tpm_species, # log2-averaged for correlation
         corr_intensity = corr_intensity,
-        corr_RI = corr_RI,
-        corr_iBAQ = corr_iBAQ,
-        corr_iBAQ_mc = corr_iBAQ_mc
-    ))
+        corr_RI        = corr_RI,
+        corr_iBAQ      = corr_iBAQ,
+        corr_iBAQ_mc   = corr_iBAQ_mc
+    )
 }
 
 #' Main Analysis Pipeline
@@ -670,39 +702,40 @@ process_species <- function(
 #' correlation statistics and visualization panels.
 #'
 #' @param TPM_PATH Character. Directory containing TPM Excel files
-#' @param TOPN_PATH Character. Path to TopN TSV file
+#' @param Intensity_PATH Character. Path to Intensity TSV file
+#' @param RI_PATH Character. Path to RI TSV file
 #' @param IBAQ_PATH Character. Path to iBAQ TSV file
 #' @param IBAQ_MC_PATH Character. Path to iBAQ MC TSV file
 #' @param output_path Character. Directory for saving outputs
+#' @param pseudocount Logical. If TRUE adds +1 to proteomics log2 transform,
+#'   matching legacy behaviour. Default FALSE (biologically correct).
+#' @param common_ids_only Logical. If TRUE restricts analysis to genes detected
+#'   in both TPM and proteomics datasets. Default FALSE.
 #'
-#' @return NULL (invisibly). Generates console output and plot files
+#' @return Named list of per-species results (invisibly)
 main_analysis <- function(
-  TPM_PATH, Intensity_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path
+  TPM_PATH, Intensity_PATH, RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path,
+  pseudocount = FALSE,
+  common_ids_only = FALSE
 ) {
     # Load protein quantification reference tables (contain all species)
     intensity_data <- read_tsv(Intensity_PATH,
         col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
+        show_col_types = FALSE, skip_empty_rows = TRUE
     )
-
     RI_data <- read_tsv(RI_PATH,
         col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
+        show_col_types = FALSE, skip_empty_rows = TRUE
     )
     iBAQ_data <- read_tsv(IBAQ_PATH,
         col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
+        show_col_types = FALSE, skip_empty_rows = TRUE
     )
     iBAQ_mc_data <- read_tsv(IBAQ_MC_PATH,
         col_names = TRUE,
-        show_col_types = FALSE,
-        skip_empty_rows = TRUE
+        show_col_types = FALSE, skip_empty_rows = TRUE
     )
 
-    # Find all TPM files (one per species)
     tpm_files <- list.files(TPM_PATH, pattern = "\\.xlsx$", full.names = TRUE)
 
     # Process each species with error handling
@@ -716,9 +749,13 @@ main_analysis <- function(
                     RI_data,
                     iBAQ_data,
                     iBAQ_mc_data,
-                    output_path
+                    output_path,
+                    pseudocount     = pseudocount,
+                    common_ids_only = common_ids_only
                 )
-                results[[result$species_name]] <<- result
+                if (!is.null(result)) {
+                    results[[result$species_name]] <<- result
+                }
             },
             error = function(e) {
                 warning(
@@ -731,9 +768,20 @@ main_analysis <- function(
 
     message("All species processed.")
 
-    process_correlation_vs_exposure_time(results, output_path)
-
+    # Only pass species with all 4 correlations available
+    results_complete <- Filter(
+        function(sp) {
+            !any(sapply(
+                c("corr_intensity", "corr_RI", "corr_iBAQ", "corr_iBAQ_mc"),
+                function(n) is.null(sp[[n]])
+            ))
+        },
+        results
+    )
+    process_correlation_vs_exposure_time(results_complete, output_path)
     message("Exposure time correlation analysis complete.")
+
+    invisible(results)
 }
 
 # ============================================================================
@@ -744,17 +792,20 @@ main_analysis <- function(
 #'
 #' @description
 #' Convenience function for running complete analysis with pre-configured
-#' paths. Useful for development and testing.
+#' paths. Set pseudocount = TRUE and common_ids_only = TRUE to reproduce
+#' legacy results.
 #'
 #' @return NULL (invisibly). Runs main_analysis() with default paths
 test_analysis <- function() {
     main_analysis(
-        "DATA/Read_counts/",
-        "Analyses/Intensity_data.tsv",
-        "Analyses/RI_data.tsv",
-        "Analyses/iBAQ_data.tsv",
-        "Analyses/iBAQ_mc_data.tsv",
-        "Analyses"
+        TPM_PATH        = "DATA/Read_counts/",
+        Intensity_PATH  = "Analyses/Intensity_data.tsv",
+        RI_PATH         = "Analyses/RI_data.tsv",
+        IBAQ_PATH       = "Analyses/iBAQ_data.tsv",
+        IBAQ_MC_PATH    = "Analyses/iBAQ_mc_data.tsv",
+        output_path     = "Analyses",
+        pseudocount     = FALSE, # set TRUE to reproduce legacy results
+        common_ids_only = TRUE # set TRUE to restrict to common genes
     )
 }
 
