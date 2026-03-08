@@ -113,21 +113,55 @@ read_essential_vec <- function(filepath) {
 #' Compute Global Log2 Mean per Gene
 #'
 #' @description
-#' Computes a single mean log2(value + 1) per Protein_id across ALL
-#' replicates and treatments combined. Matches the behaviour of the
-#' original rowMeans(log2(cols + 1)) approach.
+#' Computes a single mean log2(value) per Protein_id across ALL replicates
+#' and treatments combined. Zeros are excluded (not detected).
+#' Use pseudocount = TRUE only for TPM/RNA data.
 #'
 #' @param data Tibble. Long-format data with Protein_id and value column.
 #' @param value_col Chr. Name of column containing raw values.
 #' @param out_col Chr. Name of the output mean column.
+#' @param pseudocount Logical. If TRUE adds +1 before log2 (for TPM). Default FALSE.
 #'
 #' @return Tibble with columns: Protein_id, <out_col>
-log2_global_mean <- function(data, value_col, out_col) {
+log2_global_mean <- function(data, value_col, out_col, pseudocount = FALSE) {
     data %>%
         filter(.data[[value_col]] > 0) %>%
         group_by(Protein_id) %>%
         summarise(
-            !!out_col := mean(log2(!!sym(value_col) + 1), na.rm = TRUE),
+            !!out_col := mean(
+                log2(!!sym(value_col) + if (pseudocount) 1 else 0),
+                na.rm = TRUE
+            ),
+            .groups = "drop"
+        )
+}
+
+#' Compute SD of log2 Treatment Means per Gene
+#'
+#' @description
+#' For TPM: computes mean per treatment first, then log2, then SD across
+#' treatments. Matches "Standard deviation log2(mean TPM)" label.
+#'
+#' @param data Tibble. Long-format data with Protein_id, Treatment, value column.
+#' @param value_col Chr. Name of column containing raw values.
+#' @param out_col Chr. Name of the output SD column.
+#' @param pseudocount Logical. If TRUE adds +1 before log2 (for TPM).
+#'
+#' @return Tibble with columns: Protein_id, <out_col>
+log2_mean_sd <- function(data, value_col, out_col, pseudocount = FALSE) {
+    data %>%
+        filter(.data[[value_col]] > 0) %>%
+        group_by(Protein_id, Treatment) %>%
+        summarise(
+            mean_val = mean(!!sym(value_col), na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            log2_mean = log2(mean_val + if (pseudocount) 1 else 0)
+        ) %>%
+        group_by(Protein_id) %>%
+        summarise(
+            !!out_col := sd(log2_mean, na.rm = TRUE),
             .groups = "drop"
         )
 }
@@ -303,6 +337,82 @@ plot_essential_vs_all_correlation <- function(
     invisible(NULL)
 }
 
+#' Plot Essential vs Non-Essential SD Distribution
+#'
+#' @description
+#' Frequency polygon comparing log2 expression standard deviation between
+#' essential and non-essential genes, with a two-sided Wilcoxon p-value.
+#'
+#' @param all_df Tibble. All genes with SD column (output of log2_global_sd()).
+#' @param essential_vec Chr vector. IDs of essential genes.
+#' @param sd_col Chr. Name of the SD column in all_df.
+#' @param x_lab Chr. Short label for the data type (e.g. "TPM", "iBAQ").
+#' @param species Chr. Species name for plot title.
+#' @param output_path Chr. Directory for saving output files.
+#'
+#' @return NULL invisibly.
+plot_sd_distribution <- function(
+  all_df, essential_vec, sd_col, x_lab, species, output_path
+) {
+    condition_df <- all_df %>%
+        mutate(
+            group = factor(
+                ifelse(Protein_id %in% essential_vec, "Essential", "Non-essential"),
+                levels = c("Non-essential", "Essential")
+            )
+        ) %>%
+        filter(is.finite(.data[[sd_col]]))
+
+    p_value <- wilcox.test(
+        as.formula(paste(sd_col, "~ group")),
+        data = condition_df
+    )$p.value
+
+    p <- ggplot(
+        condition_df,
+        aes(x = .data[[sd_col]], color = group)
+    ) +
+        geom_step(
+            aes(y = after_stat(density)),
+            stat = "bin",
+            binwidth = 0.05,
+            linewidth = 0.8,
+            direction = "mid" # centers the step on each bin
+        ) +
+        scale_color_manual(
+            values = c("Non-essential" = "#F4A8A0", "Essential" = "#80CEC8")
+        ) +
+        annotate(
+            "text",
+            x = Inf, y = Inf,
+            label = sprintf("p-value: %.2e", p_value),
+            hjust = 1.1, vjust = 1.5,
+            size = 3.5,
+            fontface = "italic"
+        ) +
+        labs(
+            title = bquote(italic(.(gsub("_", " ", species)))),
+            x     = bquote("SD" ~ .(x_lab) ~ (Log[2])),
+            y     = "Frequency",
+            color = NULL
+        ) +
+        theme_bw() +
+        theme(
+            plot.title        = element_text(hjust = 0.5),
+            legend.position   = c(0.75, 0.85),
+            legend.background = element_rect(fill = "white", color = NA)
+        )
+
+    save_plot(
+        plot     = p,
+        filepath = file.path(output_path, paste0(species, "_", x_lab, "_sd_distribution")),
+        width    = 5,
+        height   = 5
+    )
+
+    invisible(NULL)
+}
+
 # ============================================================================
 # MAIN ORCHESTRATION
 # ============================================================================
@@ -333,35 +443,56 @@ process_species <- function(
   species,
   output_path
 ) {
-    # Compute global means (across all treatments + replicates)
-    tpm_df <- log2_global_mean(tpm_species, "TPM", "mean_Log2_TPM")
-    intensity_df <- log2_global_mean(
-        intensity_species, "Intensity", "mean_Log2_intensity"
-    )
-    RI_df <- log2_global_mean(RI_species, "RI", "mean_Log2_RI")
-    iBAQ_df <- log2_global_mean(iBAQ_species, "iBAQ", "mean_Log2_iBAQ")
-    iBAQ_mc_df <- log2_global_mean(iBAQ_mc_species, "iBAQ", "mean_Log2_iBAQ")
+    # --- Compute global means (across all treatments + replicates) ----------
+    # TPM uses pseudocount (+1), proteomics excludes zeros
+    tpm_mean <- log2_global_mean(tpm_species, "TPM", "mean_Log2_TPM", pseudocount = TRUE)
+    intensity_mean <- log2_global_mean(intensity_species, "Intensity", "mean_Log2_intensity", pseudocount = FALSE)
+    RI_mean <- log2_global_mean(RI_species, "RI", "mean_Log2_RI", pseudocount = FALSE)
+    iBAQ_mean <- log2_global_mean(iBAQ_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = FALSE)
+    iBAQ_mc_mean <- log2_global_mean(iBAQ_mc_species, "iBAQ", "mean_Log2_iBAQ", pseudocount = FALSE)
 
-    # Generate one plot per quantification type
+    # --- Compute log2 mean SDs -------------------------------------------------
+    tpm_sd <- log2_mean_sd(tpm_species, "TPM", "sd_Log2_TPM", pseudocount = TRUE)
+    intensity_sd <- log2_mean_sd(intensity_species, "Intensity", "sd_Log2_intensity", pseudocount = FALSE)
+    RI_sd <- log2_mean_sd(RI_species, "RI", "sd_Log2_RI", pseudocount = FALSE)
+    iBAQ_sd <- log2_mean_sd(iBAQ_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = FALSE)
+    iBAQ_mc_sd <- log2_mean_sd(iBAQ_mc_species, "iBAQ", "sd_Log2_iBAQ", pseudocount = FALSE)
+    # --- Distribution plots (mean) ------------------------------------------
     list(
-        list(df = tpm_df, col = "mean_Log2_TPM", lab = "TPM"),
-        list(df = intensity_df, col = "mean_Log2_intensity", lab = "Intensity"),
-        list(df = RI_df, col = "mean_Log2_RI", lab = "RI"),
-        list(df = iBAQ_df, col = "mean_Log2_iBAQ", lab = "iBAQ"),
-        list(df = iBAQ_mc_df, col = "mean_Log2_iBAQ", lab = "iBAQ_mc")
+        list(df = tpm_mean, col = "mean_Log2_TPM", lab = "TPM"),
+        list(df = intensity_mean, col = "mean_Log2_intensity", lab = "Intensity"),
+        list(df = RI_mean, col = "mean_Log2_RI", lab = "RI"),
+        list(df = iBAQ_mean, col = "mean_Log2_iBAQ", lab = "iBAQ"),
+        list(df = iBAQ_mc_mean, col = "mean_Log2_iBAQ", lab = "iBAQ_mc")
     ) %>%
-        walk(function(item) {
-            plot_essential_distribution(
-                all_df = item$df,
-                essential_vec = essential_vec,
-                log2_col = item$col,
-                x_lab = item$lab,
-                species = species,
-                output_path = output_path
-            )
-        })
+        walk(~ plot_essential_distribution(
+            all_df        = .x$df,
+            essential_vec = essential_vec,
+            log2_col      = .x$col,
+            x_lab         = .x$lab,
+            species       = species,
+            output_path   = output_path
+        ))
 
-    tpm_log2_transform <- tpm_species %>%
+    # --- SD distribution plots ----------------------------------------------
+    list(
+        list(df = tpm_sd, col = "sd_Log2_TPM", lab = "TPM"),
+        list(df = intensity_sd, col = "sd_Log2_intensity", lab = "Intensity"),
+        list(df = RI_sd, col = "sd_Log2_RI", lab = "RI"),
+        list(df = iBAQ_sd, col = "sd_Log2_iBAQ", lab = "iBAQ"),
+        list(df = iBAQ_mc_sd, col = "sd_Log2_iBAQ", lab = "iBAQ_mc")
+    ) %>%
+        walk(~ plot_sd_distribution(
+            all_df        = .x$df,
+            essential_vec = essential_vec,
+            sd_col        = .x$col,
+            x_lab         = .x$lab,
+            species       = species,
+            output_path   = output_path
+        ))
+
+    # --- Essential vs all correlation scatter -------------------------------
+    tpm_log2 <- tpm_species %>%
         log2_transform(value_col = "TPM") %>%
         rename(mean_Log2_TPM = mean_log2)
 
@@ -373,12 +504,17 @@ process_species <- function(
     ) %>%
         walk(function(item) {
             pair_corr <- get_correlation(
-                tpm_log2_transform, item$df, essential_vec, item$col
+                tpm_log2, item$df, essential_vec, item$col
             )
             plot_essential_vs_all_correlation(
-                pair_corr$corr_all, pair_corr$corr_essential, species, item$lab, output_path
+                pair_corr$corr_all,
+                pair_corr$corr_essential,
+                species,
+                item$lab,
+                output_path
             )
         })
+
     invisible(NULL)
 }
 
