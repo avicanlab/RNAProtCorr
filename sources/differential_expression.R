@@ -41,8 +41,8 @@ SOURCED_AS_MODULE <- TRUE
 source("sources/correlation.R") # species_abbv_map, treatment_list, save_plot
 
 library(limma)
-library(readxl)
 library(tidyverse)
+library(readxl)
 
 # ============================================================================
 # CONFIGURATION
@@ -300,6 +300,123 @@ run_limma_dep <- function(
 # VISUALIZATION
 # ============================================================================
 
+#' Plot % DE vs mRNA-Protein Correlation Scatter
+#'
+#' @description
+#' Scatter plot with one point per treatment showing the relationship between
+#' the percentage of differentially expressed features (x-axis) and the
+#' per-treatment Pearson R from mRNA-protein level correlation (y-axis).
+#' Pearson R and Student's t-test p-value are computed across treatments and
+#' displayed as a label inside the panel.
+#' Call this function once for DEGs and once for DEPs.
+#'
+#' @param de_df       Tibble. call_deg() or run_limma_dep() output.
+#'   Must contain: Treatment, pct_de.
+#' @param corr_df     Tibble. calculate_correlation() output from correlation.R.
+#'   Must contain: Treatment, R (per-treatment Pearson R mRNA vs protein).
+#' @param de_type     Chr. Label for the DE type, e.g. "DEGs" or "DEPs".
+#' @param protq_name  Chr. Proteomics quantification method, e.g. "iBAQ".
+#'   Used in axis label and filename.
+#' @param species     Chr. Species name for italic title.
+#' @param output_path Chr. Output directory.
+#'
+#' @return NULL invisibly.
+plot_de_vs_correlation <- function(
+  de_df,
+  corr_df,
+  de_type,
+  protq_name,
+  species,
+  output_path
+) {
+    # Join % DE with per-treatment mRNA-protein R
+    plot_df <- de_df %>%
+        dplyr::select(Treatment, pct_de) %>%
+        inner_join(
+            corr_df %>% distinct(Treatment, R),
+            by = "Treatment"
+        ) %>%
+        filter(is.finite(pct_de), is.finite(R))
+
+    if (nrow(plot_df) < 3) {
+        warning(
+            "  Too few points for DE vs correlation scatter (",
+            de_type, ", ", protq_name, ") — skipping."
+        )
+        return(invisible(NULL))
+    }
+
+    # Pearson correlation + Student's t-test p-value across treatments
+    pearson_test <- cor.test(plot_df$pct_de, plot_df$R, method = "pearson")
+    r_val <- pearson_test$estimate
+    p_val <- pearson_test$p.value
+    label <- sprintf("R = %.2f\np = %.2e", r_val, p_val)
+
+    # Label position: top-right inside panel
+    label_x <- max(plot_df$pct_de) + diff(range(plot_df$pct_de)) * 0.05
+    label_y <- max(plot_df$R)
+
+    p <- ggplot(plot_df, aes(x = pct_de, y = R, label = Treatment)) +
+        geom_smooth(
+            method    = "lm",
+            formula   = y ~ x,
+            se        = TRUE,
+            colour    = "grey50",
+            fill      = "grey85",
+            linewidth = 0.7
+        ) +
+        geom_point(
+            size   = 3,
+            colour = if (de_type == "DEGs") DE_COLOURS[["DEGs"]] else DE_COLOURS[["DEPs"]]
+        ) +
+        geom_text(
+            vjust  = -0.8,
+            size   = 3,
+            colour = "grey30"
+        ) +
+        annotate(
+            "label",
+            x          = label_x,
+            y          = label_y,
+            label      = label,
+            hjust      = 1,
+            vjust      = 1,
+            size       = 3,
+            fill       = "white",
+            label.size = 0.3,
+            fontface   = "italic"
+        ) +
+        labs(
+            title = bquote(italic(.(gsub("_", " ", species)))),
+            x = paste0("% ", de_type),
+            y = bquote("mRNA-protein correlation" ~ italic(R) ~
+                "(" * .(protq_name) * ")")
+        ) +
+        theme_bw(base_size = 11) +
+        theme(
+            plot.title = element_text(face = "italic", hjust = 0.5, size = 11),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            panel.grid.minor = element_blank()
+        )
+
+    save_plot(
+        plot = p,
+        filepath = file.path(
+            output_path,
+            paste0(species, "_", de_type, "_vs_correlation_", protq_name)
+        ),
+        width = 5,
+        height = 5
+    )
+
+    message(
+        "  Plot saved: ", species, "_", de_type,
+        "_vs_correlation_", protq_name, ".pdf/.png"
+    )
+    invisible(NULL)
+}
+
 #' Plot DEG vs DEP Percentage Horizontal Bar Chart
 #'
 #' @description
@@ -394,28 +511,43 @@ write_de_table <- function(de_df, output_path, filename) {
 #' Process DEG and DEP Analysis for One Species
 #'
 #' @description
-#' Loads read counts and normalised proteomics, calls DEGs from pre-computed
-#' columns, runs limma for DEPs, writes summary TSVs, and plots the bar chart.
+#' Calls DEGs from pre-computed columns, runs limma for DEPs, writes summary
+#' TSVs, plots the bar chart, and generates scatter plots of % DE vs
+#' mRNA-protein correlation (once for DEGs, once for DEPs).
 #'
-#' @param counts_file    Chr. Path to read counts Excel file.
+#' @param deg_data       Tibble. Output of read_deg_data().
 #' @param norm_path      Chr. Path to normalised proteomics TSV.
+#' @param corr_df        Tibble. calculate_correlation() output for this species
+#'   and proteomics method. Must contain Treatment and R columns.
+#'   Pass NULL to skip the DE vs correlation scatter plots.
+#' @param protq_name     Chr. Proteomics quantification method label (e.g. "iBAQ").
+#'   Used in scatter plot axis label and filename.
 #' @param species        Chr. Species name.
 #' @param output_path    Chr. Output directory.
 #' @param pval_threshold Num. FDR/BH threshold. Default DEG_PVAL_THRESHOLD.
 #' @param fc_threshold   Num. |log2FC| threshold. Default DE_FC_THRESHOLD.
+#' @param common_ids_only Logical. If TRUE restricts to IDs present in both
+#'   DEG and DEP datasets. Default TRUE.
 #'
-#' @return List: species, deg_results, dep_results. NULL on failure.
+#' @return List: species, deg_results, dep_results.
 process_species_de <- function(
   deg_data,
+  tpm_data,
   norm_path,
+  protq_path,
+  corr_df = NULL,
+  protq_name = NULL,
   species,
   output_path,
   pval_threshold = DEG_PVAL_THRESHOLD,
   fc_threshold = DE_FC_THRESHOLD,
   common_ids_only = TRUE
 ) {
+    message("\nProcessing DE for: ", species)
+
     # ---- DEP from normalised proteomics via limma ---------------------------
     dep_results <- NULL
+    prot_long <- NULL
 
     if (!file.exists(norm_path)) {
         warning("  Normalised proteomics not found: ", norm_path)
@@ -428,17 +560,18 @@ process_species_de <- function(
             )
     }
 
-    if (common_ids_only) {
-        common_ids <- Reduce(intersect, list(
+    # ---- Optionally restrict to common IDs ----------------------------------
+    if (common_ids_only && !is.null(prot_long)) {
+        common_ids <- intersect(
             deg_data %>% pull(Protein_id) %>% unique(),
             prot_long %>% pull(Protein_id) %>% unique()
-        ))
-        message("  Common IDs across all datasets: ", length(common_ids))
-
+        )
+        message("  Common IDs (DEG ∩ DEP): ", length(common_ids))
         deg_data <- deg_data %>% filter(Protein_id %in% common_ids)
         prot_long <- prot_long %>% filter(Protein_id %in% common_ids)
     }
 
+    # ---- DEG calling --------------------------------------------------------
     deg_results <- call_deg(deg_data, pval_threshold, fc_threshold)
 
     write_de_table(deg_results, output_path, paste0(species, "_DEG_results.tsv"))
@@ -447,31 +580,79 @@ process_species_de <- function(
         nrow(deg_results), " conditions"
     )
 
-    prot_expr <- build_expression_matrix(prot_long)
-    dep_results <- run_limma_dep(
-        mat            = prot_expr$mat,
-        metadata       = prot_expr$metadata,
-        pval_threshold = DEP_PVAL_THRESHOLD,
-        fc_threshold   = fc_threshold
-    )
+    # ---- DEP via limma ------------------------------------------------------
+    if (!is.null(prot_long)) {
+        prot_expr <- build_expression_matrix(prot_long)
+        dep_results <- run_limma_dep(
+            mat            = prot_expr$mat,
+            metadata       = prot_expr$metadata,
+            pval_threshold = DEP_PVAL_THRESHOLD,
+            fc_threshold   = fc_threshold
+        )
 
-    if (!is.null(dep_results)) {
-        write_de_table(
-            dep_results, output_path,
-            paste0(species, "_DEP_results.tsv")
-        )
-        message(
-            "  DEP: ", sum(dep_results$n_de), " total DE proteins across ",
-            nrow(dep_results), " conditions"
-        )
+        if (!is.null(dep_results)) {
+            write_de_table(
+                dep_results, output_path,
+                paste0(species, "_DEP_results.tsv")
+            )
+            message(
+                "  DEP: ", sum(dep_results$n_de), " total DE proteins across ",
+                nrow(dep_results), " conditions"
+            )
+        }
     }
 
-    # ---- Plot ---------------------------------------------------------------
+    # ---- Bar chart ----------------------------------------------------------
     if (!is.null(dep_results)) {
         plot_de_barplot(deg_results, dep_results, species, output_path)
     } else {
-        message("  Skipping plot — DEP results unavailable.")
+        message("  Skipping bar chart — DEP results unavailable.")
     }
+
+    # ---- DE vs mRNA-protein correlation scatter plots -----------------------
+    ## ---- Optionally restrict to common IDs ---------------------------------
+    protq_data <- read_tsv(protq_path,
+        col_names = TRUE,
+        show_col_types = FALSE, skip_empty_rows = TRUE
+    ) %>%
+        filter(Species == species)
+
+    if (common_ids_only && !is.null(protq_data)) {
+        common_ids <- intersect(
+            tpm_data %>% pull(Protein_id) %>% unique(),
+            protq_data %>% pull(Protein_id) %>% unique()
+        )
+        message("  Common IDs (DEG ∩ DEP): ", length(common_ids))
+        tpm_data <- tpm_data %>% filter(Protein_id %in% common_ids)
+        protq_data <- protq_data %>% filter(Protein_id %in% common_ids)
+    }
+
+    tpm_data <- tpm_data %>%
+        log2_transform(value_col = "TPM", pseudocount = TRUE) %>%
+        rename(mean_Log2_TPM = mean_log2)
+
+    corr_df <- calculate_correlation(
+        tpm_data, protq_data,
+        paste0(ifelse(protq_name == "iBAQ_MC", "iBAQ", protq_name), "_meanlog2")
+    )
+
+    plot_de_vs_correlation(
+        de_df       = deg_results,
+        corr_df     = corr_df,
+        de_type     = "DEGs",
+        protq_name  = protq_name,
+        species     = species,
+        output_path = output_path
+    )
+    plot_de_vs_correlation(
+        de_df       = dep_results,
+        corr_df     = corr_df,
+        de_type     = "DEPs",
+        protq_name  = protq_name,
+        species     = species,
+        output_path = output_path
+    )
+
 
     list(species = species, deg_results = deg_results, dep_results = dep_results)
 }
@@ -494,23 +675,29 @@ process_species_de <- function(
 #' @param pval_threshold Num. FDR/BH threshold. Default 0.05.
 #' @param fc_threshold   Num. |log2FC| threshold. Default 0.5.
 #'
+#' @param correlation_results List. Output of main_analysis() from correlation.R.
+#'   Structured as: correlation_results[[species]][[corr_<method>]].
+#'   Used to supply per-treatment R values for the DE vs correlation scatter.
+#'   Pass NULL to skip scatter plots.
+#'
 #' @return Named list of per-species results (invisibly).
 main_analysis_de <- function(
   counts_path,
   norm_base,
   norm_method,
+  protQ_dir,
   output_path,
   pval_threshold = DEG_PVAL_THRESHOLD,
   fc_threshold = DE_FC_THRESHOLD
 ) {
     counts_files <- list.files(counts_path, pattern = "\\.xlsx$", full.names = TRUE)
 
-    output_de <- paste(output_path, "DE", sep = "/")
-    dir.create(output_de)
-
     if (length(counts_files) == 0) {
         stop("No read counts Excel files found in: ", counts_path)
     }
+
+    output_de <- file.path(output_path, "DE")
+    dir.create(output_de, showWarnings = FALSE)
 
     results <- list()
 
@@ -518,40 +705,67 @@ main_analysis_de <- function(
         species <- tools::file_path_sans_ext(
             str_extract(basename(counts_file), "^[A-Za-z]+_[A-Za-z]+")
         )
-        # ---- DEG from pre-computed fold changes ---------------------------------
+        message("Processing species: ", species)
+
+        # Look up species abbreviation
+        abbv <- species_abbv_map[species]
+        if (is.na(abbv)) {
+            warning(
+                "No abbreviation found for species '", species,
+                "', skipping file: ", basename(tpm_file)
+            )
+            return(invisible(NULL))
+        }
+
+        # Load raw TPM (before averaging — kept for downstream use)
+        tpm_data <- read_tpm(counts_file, abbv) %>%
+            mutate(
+                Species    = species,
+                Treatment  = ifelse(Treatment == "Mig", "Hyp", Treatment),
+                Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+            ) %>%
+            filter(!is.na(Protein_id), !is.na(TPM))
+
         message("  Loading read counts: ", basename(counts_file))
         deg_data <- read_deg_data(counts_file)
 
-        for (protQ in PROTQ_METHODS) {
-            message("Process ", protQ, " for ", species, "...")
+        for (protq in PROTQ_METHODS) {
+            message("Processing ", protq, " for ", species, "...")
+
             norm_path <- file.path(
-                norm_base, species, protQ, paste0(norm_method, "-normalized.txt")
+                norm_base, species, protq,
+                paste0(norm_method, "-normalized.txt")
             )
-            output_sp_protq <- paste(
-                output_de, species, protQ, norm_method,
-                sep = "/"
+            protq_path <- file.path(
+                protQ_dir, paste0(protq, "_data.tsv")
             )
-            dir.create(output_sp_protq, recursive = TRUE)
+            output_sp_protq <- file.path(output_de, species, protq, norm_method)
+            dir.create(output_sp_protq, recursive = TRUE, showWarnings = FALSE)
+
             result <- tryCatch(
                 process_species_de(
-                    deg_data       = deg_data,
-                    norm_path      = norm_path,
-                    species        = species,
-                    output_path    = output_sp_protq,
-                    pval_threshold = pval_threshold,
-                    fc_threshold   = fc_threshold
+                    deg_data        = deg_data,
+                    tpm_data        = tpm_data,
+                    norm_path       = norm_path,
+                    protq_path      = protq_path,
+                    corr_df         = corr_df,
+                    protq_name      = protq,
+                    species         = species,
+                    output_path     = output_sp_protq,
+                    pval_threshold  = pval_threshold,
+                    fc_threshold    = fc_threshold
                 ),
                 error = function(e) {
-                    warning("Failed for '", species, "': ", e$message)
+                    warning("Failed for '", species, "' / '", protq, "': ", e$message)
                     NULL
                 }
             )
 
-            if (!is.null(result)) results[[species]] <- result
+            if (!is.null(result)) results[[species]][[protq]] <- result
         }
     }
 
-    message("\nDE analysis complete. Results written to: ", output_path)
+    message("\nDE analysis complete. Results written to: ", output_de)
     invisible(results)
 }
 
@@ -566,16 +780,22 @@ main_analysis_de <- function(
 #' @param fc_threshold   Num. |log2FC| threshold.
 test_analysis_de <- function(
   norm_method = "VSN",
+  correlation_results = NULL,
   pval_threshold = DEG_PVAL_THRESHOLD,
   fc_threshold = DE_FC_THRESHOLD
 ) {
+    # correlation_results can be obtained by running:
+    #   corr <- main_analysis(TPM_PATH, Intensity_PATH, RI_PATH,
+    #                         IBAQ_PATH, IBAQ_MC_PATH, output_path = "Analyses")
+    # then passing corr here to enable DE vs correlation scatter plots.
     main_analysis_de(
-        counts_path    = "DATA/Read_counts/",
-        norm_base      = "Analyses/NormTest",
-        norm_method    = norm_method,
-        output_path    = "Analyses",
-        pval_threshold = pval_threshold,
-        fc_threshold   = fc_threshold
+        counts_path         = "DATA/Read_counts/",
+        norm_base           = "Analyses/NormTest",
+        norm_method         = norm_method,
+        protQ_dir           = "Analyses",
+        output_path         = "Analyses",
+        pval_threshold      = pval_threshold,
+        fc_threshold        = fc_threshold
     )
 }
 
