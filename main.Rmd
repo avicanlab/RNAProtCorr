@@ -2,12 +2,255 @@
 title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
-output: rmdformats::material
+output: 
+    rmdformats::downcute:
+        code_folding: hide
+        self_contained: true
+        thumbnails: true
+        lightbox: true
+pkgdown:
+  as_is: true
 
 ---
 
-# introduction
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    message = FALSE,
+    warning = FALSE,
+    error = FALSE
+)
+```
 
-# Method
+```{r load-environment}
+# Load library
+library(fs)
+library(readxl)
+library(tidyverse)
+library(limma)
 
-# Results
+# Load sources functions
+source("sources/utils.R")
+```
+
+```{r configuration, results='hide', error=TRUE}
+#' Species Abbreviation Mapping
+#' Maps full species names to abbreviations for data parsing
+SPECIES <- c(
+    "Salmonella_enterica",
+    "Staphylococcus_aureus",
+    "Yersinia_pseudotuberculosis"
+)
+
+SPECIES_ABBV_MAP <- c(
+    "Salmonella_enterica"         = "SALMT",
+    "Staphylococcus_aureus"       = "MSSA",
+    "Yersinia_pseudotuberculosis" = "YPSTB"
+)
+
+#' Treatment List
+#' Control and stress treatment conditions
+treatment_list <- c(
+    "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
+)
+
+treatment_to_exposure_time <- c(
+    "Ctrl" = 10,
+    "As"   = 10,
+    "Bs"   = 10,
+    "Hyp"  = 240,
+    "Li"   = 10,
+    "Nd"   = 30,
+    "Ns"   = 10,
+    "Oss"  = 10,
+    "Oxs"  = 10,
+    "Sp"   = 241,
+    "Tm"   = 20
+)
+
+#' Exposure Time Label Mapping
+#' Maps numeric exposure times (minutes) to display labels
+EXPOSURE_TIME_LABELS <- c(
+    "10"  = "10",
+    "20"  = "20 min",
+    "30"  = "30 min",
+    "240" = "4 hours",
+    "241" = "\u22654 hours"
+)
+
+#' Measurement Display Labels
+MEASUREMENT_LABELS <- c(
+    "corr_intensity" = "Intensity",
+    "corr_RI"        = "RI",
+    "corr_iBAQ"      = "iBAQ",
+    "corr_iBAQ_mc"   = "iBAQ MC"
+)
+
+#' Treatment Shape Mapping (ggstar)
+TREATMENT_SHAPES <- c(
+    "As"   = 1,
+    "Bs"   = 14,
+    "Ctrl" = 15,
+    "Hyp"  = 11,
+    "Li"   = 7,
+    "Nd"   = 8,
+    "Ns"   = 4,
+    "Oss"  = 22,
+    "Oxs"  = 21,
+    "Sp"   = 23,
+    "Tm"   = 2
+)
+
+# --- Directories ---------------------------------------------------------------
+dirs <- list(
+    DATA            = path("DATA"),
+    RNA_DATA        = path("DATA", "Read_counts"),
+    PROTEIN_DATA    = path("DATA", "Proteome"),
+    PROTEIN_FASTA   = path("DATA", "Fasta_files"),
+    ESSENTIAL_GENES = path("DATA", "Essential genes")
+)
+
+walk(dirs, check_dir, return_error = TRUE)
+
+OUTPUT_PATH <- path("Analyses2")
+dir_create(OUTPUT_PATH)
+
+# --- Required files ------------------------------------------------------------
+files <- list(
+    SAMPLE_MAPPING = path(dirs$PROTEIN_DATA, "sample_mapping.xlsx")
+)
+
+walk(files, ~ if (!file_exists(.x)) stop(.x, " not found"))
+
+# --- Expose to environment (equivalent to your original variables) -------------
+list2env(c(dirs, files), envir = .GlobalEnv)
+```
+
+# Data loading and processing
+```{r load-tpm, results='hide'}
+source("sources/read_data.R")
+# Load RNA tpm data
+rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
+tmp_data <- list()
+lapply(rna_files, function(rna_file) {
+    species <- get_species_tpm(rna_file)
+    abbv <- SPECIES_ABBV_MAP[species]
+    tpm_raw <- read_tpm(rna_file, abbv) %>%
+        mutate(
+            Species = species,
+            Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment),
+            Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+        ) %>%
+        filter(!is.na(Protein_id), !is.na(TPM))
+    if (!is.null(tpm_raw)) {
+        tmp_data[[species]] <<- tpm_raw
+    }
+})
+```
+
+```{r load-prot, results='hide'}
+# source("sources/read_data.R")
+# Load proteomic data
+sample_mapping <- read_excel(SAMPLE_MAPPING, col_names = TRUE) %>%
+    mutate(Replicate = paste0("R", Replicate))
+protein_files <- list.files(
+    PROTEIN_DATA,
+    pattern = "\\.tsv$",
+    recursive = TRUE,
+    full.names = TRUE
+)
+
+filter_log <- list()
+filtered_proteins <- list()
+
+lapply(protein_files, function(protein_file) {
+    species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", protein_file)
+    replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", protein_file)
+
+    tmt_raw <- read_tmt(protein_file)
+    filtered_raw <- filter_tmt(tmt_raw, species, replicate)
+
+    filtered_proteins[[species]][[replicate]] <<- filtered_raw$filtered_tmt
+    filter_log[[species]][[replicate]] <<- filtered_raw$filter_log
+})
+
+tmt_data <- lapply(names(filtered_proteins), function(species) {
+    map_dfr(names(filtered_proteins[[species]]), function(rep) {
+        filtered_proteins[[species]][[rep]] %>%
+            mutate(Species = species, Replicate = rep)
+    })
+}) %>% set_names(names(filtered_proteins))
+
+# TODO put this in a function
+# Build and write filter log
+filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
+    mutate(across(-c("species", "replicate"), as.integer))
+
+message("TMT filtering summary:\n")
+
+write.table(
+    filter_log_df,
+    path(OUTPUT_PATH, "filter_log.tsv"),
+    sep       = "\t",
+    row.names = FALSE,
+    quote     = FALSE
+)
+```
+
+# Trancriptomic and Proteomic analysis of 3 human pathogens under 10 revelevant stress condition
+
+```{r load-annotation, results='hide'}
+annotation_files <- list.files(
+    PROTEIN_DATA,
+    pattern     = "^annotation\\.xlsx$", # ^ and $ anchor to exact filename
+    recursive   = TRUE,
+    full.names  = TRUE
+) # %>%
+# .[!grepl("^~\\$", basename(.))]        # exclude Excel temp files (~$annotation.xlsx)
+annotation_data <- list()
+lapply(annotation_files, function(annotation_file) {
+    species <- path_file(path_dir(annotation_file))
+    annotation_raw <- read_excel(
+        annotation_file,
+        col_names = TRUE, na = "N/A"
+    ) %>%
+        select(locus_tag, old_locus_tag) %>%
+        mutate(
+            Protein_id = if_else(
+                is.na(locus_tag),
+                old_locus_tag,
+                locus_tag
+            )
+        ) %>%
+        mutate(
+            Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+        )
+    annotation_data[[species]] <<- annotation_raw
+})
+```
+
+## Percentages of CDSs detected by transcriptomics and proteomics for the three species 
+```{r cds-distribution}
+source("sources/cds_distribution.R")
+
+detected_cds_df <- get_detected_cds(annotation_data, tmp_data, tmt_data)
+detected_cds_file <- path(OUTPUT_PATH, "Detected_CDS.tsv")
+write.table(detected_cds_df, sep = "\t")
+plot_barplot_detected_cds(
+    detected_cds_df,
+    position = "overlay", path(OUTPUT_PATH, "CDS_detected.png")
+)
+```
+
+## Distribution of transcript abundance across all conditions in the three species
+
+- All condition: light blue,
+- Fraction of proteins detected: yellow,
+- Transcripts with no corresponding protein detected: dark blue.
+
+```{r , results='hide'}
+print("pika")
+```
+
+# mRNA and protein level correlation under stress
+
+
