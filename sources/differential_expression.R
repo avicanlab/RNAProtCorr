@@ -300,6 +300,10 @@ run_limma_dep <- function(
 # VISUALIZATION
 # ============================================================================
 
+# ============================================================================
+# VISUALIZATION
+# ============================================================================
+
 #' Plot % DE vs mRNA-Protein Correlation Scatter
 #'
 #' @description
@@ -412,6 +416,125 @@ plot_de_vs_correlation <- function(
 
     message(
         "  Plot saved: ", species, "_", de_type,
+        "_vs_correlation_", protq_name, ".pdf/.png"
+    )
+    invisible(NULL)
+}
+
+#' Plot % DE vs mRNA-Protein Correlation — All Species Combined
+#'
+#' @description
+#' Same scatter as plot_de_vs_correlation() but combines all species into one
+#' panel. Points are coloured by Treatment and shaped by Species.
+#' A single global Pearson R + Student's t-test p-value is computed across
+#' all species-treatment combinations and shown as a label.
+#' Call once for DEGs and once for DEPs.
+#'
+#' @param all_species_df Tibble. Must contain: Treatment, Species, pct_de, R.
+#'   Built by main_analysis_de() after collecting all per-species results.
+#' @param de_type        Chr. "DEGs" or "DEPs".
+#' @param protq_name     Chr. Proteomics method label, e.g. "iBAQ".
+#' @param output_path    Chr. Output directory.
+#'
+#' @return NULL invisibly.
+plot_de_vs_correlation_all_species <- function(
+  all_species_df,
+  de_type,
+  protq_name,
+  output_path
+) {
+    plot_df <- all_species_df %>%
+        filter(is.finite(pct_de), is.finite(R))
+
+    if (nrow(plot_df) < 3) {
+        warning(
+            "  Too few points for all-species DE vs correlation scatter (",
+            de_type, ", ", protq_name, ") — skipping."
+        )
+        return(invisible(NULL))
+    }
+
+    # Global Pearson R + Student's t-test p-value across all species x treatments
+    pearson_test <- cor.test(plot_df$pct_de, plot_df$R, method = "pearson")
+    r_val <- pearson_test$estimate
+    p_val <- pearson_test$p.value
+    label <- sprintf("R = %.2f\np = %.2e", r_val, p_val)
+
+    label_x <- max(plot_df$R)
+    label_y <- max(plot_df$pct_de) + diff(range(plot_df$pct_de)) * 0.05
+
+    # Italic species labels for legend
+    species_levels <- sort(unique(plot_df$Species))
+    species_labels <- setNames(
+        lapply(species_levels, function(s) bquote(italic(.(gsub("_", " ", s))))),
+        species_levels
+    )
+
+    p <- ggplot(plot_df, aes(
+        x = R,
+        y = pct_de,
+        colour = Treatment,
+        shape = Species,
+        label = Treatment
+    )) +
+        geom_smooth(
+            aes(group = 1), # single lm line across all points
+            method = "lm",
+            formula = y ~ x,
+            se = TRUE,
+            colour = "grey50",
+            fill = "grey85",
+            linewidth = 0.7
+        ) +
+        geom_point(size = 3) +
+        annotate(
+            "label",
+            x = label_x,
+            y = label_y,
+            label = label,
+            hjust = 1,
+            vjust = 1,
+            size = 3,
+            fill = "white",
+            label.padding = unit(0.2, "lines"),
+            fontface = "italic"
+        ) +
+        scale_shape_manual(
+            values = setNames(
+                seq_along(species_levels) + 14, # distinct filled shapes
+                species_levels
+            ),
+            labels = species_labels
+        ) +
+        labs(
+            x = bquote("mRNA-protein correlation" ~ italic(R) ~
+                "(" * .(protq_name) * ")"),
+            y = paste0("% ", de_type),
+            colour = "Treatment",
+            shape = "Species"
+        ) +
+        theme_bw(base_size = 11) +
+        theme(
+            axis.title       = element_text(size = 10),
+            axis.text        = element_text(size = 9),
+            panel.grid.minor = element_blank(),
+            legend.text      = element_text(size = 8),
+            legend.title     = element_text(size = 9),
+            legend.key.size  = unit(0.45, "cm")
+        )
+
+    save_plot(
+        plot = p,
+        filepath = file.path(
+            output_path,
+            paste0("AllSpecies_", de_type, "_vs_correlation_", protq_name)
+        ),
+        width = 6,
+        height = 5
+    )
+
+    message(
+        "  Plot saved: AllSpecies_", de_type,
         "_vs_correlation_", protq_name, ".pdf/.png"
     )
     invisible(NULL)
@@ -654,7 +777,12 @@ process_species_de <- function(
     )
 
 
-    list(species = species, deg_results = deg_results, dep_results = dep_results)
+    list(
+        species = species,
+        deg_results = deg_results,
+        dep_results = dep_results,
+        corr_df = corr_df
+    )
 }
 
 # ============================================================================
@@ -762,6 +890,64 @@ main_analysis_de <- function(
             )
 
             if (!is.null(result)) results[[species]][[protq]] <- result
+        }
+    }
+
+    # ---- All-species DE vs correlation scatter plots ------------------------
+    # Collect per-species/method results into one flat tibble and plot once
+    # per DE type (DEGs / DEPs) per proteomics method
+    for (protq in PROTQ_METHODS) {
+        # Build combined tibble: one row per species x treatment
+        deg_combined <- map_dfr(names(results), function(sp) {
+            res <- results[[sp]][[protq]]
+            if (is.null(res) || is.null(res$deg_results)) {
+                return(NULL)
+            }
+            if (is.null(res$corr_df)) {
+                return(NULL)
+            }
+            res$deg_results %>%
+                dplyr::select(Treatment, pct_de) %>%
+                inner_join(
+                    res$corr_df %>% distinct(Treatment, R),
+                    by = "Treatment"
+                ) %>%
+                mutate(Species = sp)
+        })
+
+        dep_combined <- map_dfr(names(results), function(sp) {
+            res <- results[[sp]][[protq]]
+            if (is.null(res) || is.null(res$dep_results)) {
+                return(NULL)
+            }
+            if (is.null(res$corr_df)) {
+                return(NULL)
+            }
+            res$dep_results %>%
+                dplyr::select(Treatment, pct_de) %>%
+                inner_join(
+                    res$corr_df %>% distinct(Treatment, R),
+                    by = "Treatment"
+                ) %>%
+                mutate(Species = sp)
+        })
+
+        if (nrow(deg_combined) > 0) {
+            plot_de_vs_correlation_all_species(
+                all_species_df = deg_combined,
+                de_type        = "DEGs",
+                protq_name     = protq,
+                output_path    = output_de
+            )
+        }
+
+        if (nrow(dep_combined) > 0) {
+            plot_de_vs_correlation_all_species(
+                all_species_df = dep_combined,
+                de_type        = "DEPs",
+                protq_name     = protq,
+                output_path    = output_de
+            )
         }
     }
 
