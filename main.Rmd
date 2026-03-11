@@ -107,16 +107,13 @@ PROTEIN_QUANTIFICATION_METHOD = "RI" # Intensity divided by the number of razor 
 # PROTEIN_QUANTIFICATION_METHOD = "Intensity" # Direct intensity from TMT analyses
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC" # Total intensity divided by the number of expected peptide after trypsin digestion
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC_MC" Same but miss cleavage parameter filter added
-# For iBAQ quantification
-# MIN_PEPTIDE_LEN = 6
-# MAX_PEPTIDE_LEN = 30
-# IBAC_MISS_CLEAVAGE = 2
+
 # --- Directories ---------------------------------------------------------------
 dirs <- list(
     DATA            = path("DATA"),
     RNA_DATA        = path("DATA", "Read_counts"),
     PROTEIN_DATA    = path("DATA", "Proteome"),
-    # PROTEIN_FASTA   = path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
+    PROTEIN_FASTA   = path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
     ESSENTIAL_GENES = path("DATA", "Essential genes")
 )
 
@@ -196,7 +193,7 @@ message("TMT filtering summary:\n")
 
 write.table(
     filter_log_df,
-    path(OUTPUT_PATH, "filter_log.tsv"),
+    file.path(OUTPUT_PATH, "filter_log.tsv"),
     sep       = "\t",
     row.names = FALSE,
     quote     = FALSE
@@ -211,7 +208,7 @@ removed_proteins <- completeness_result$removed_proteins
 if (nrow(removed_proteins) > 0) {
 write.table(
     removed_proteins %>% arrange(Species, Protein_id),
-    path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
+    file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
     sep = "\t", row.names = FALSE, quote = FALSE
 )
 message("Removed proteins written to: removed_proteins_incomplete.tsv\n")
@@ -252,11 +249,11 @@ annotation_data <- map_dfr(annotation_files, function(annotation_file) {
 source("sources/cds_distribution.R")
 
 detected_cds_df <- get_detected_cds(annotation_data, tpm_data, tmt_data)
-detected_cds_file <- path(OUTPUT_PATH, "Detected_CDS.tsv")
+detected_cds_file <- file.path(OUTPUT_PATH, "Detected_CDS.tsv")
 write.table(detected_cds_df, detected_cds_file, sep = "\t")
 plot_barplot_detected_cds(
     detected_cds_df,
-    position = "overlay", path(OUTPUT_PATH, "CDS_detected.png")
+    position = "overlay", path(OUTPUT_PATH, "CDS_detected")
 )
 ```
 
@@ -313,7 +310,58 @@ message("Combined figure saved: AllSpecies_TPM_detection_distribution.pdf/.png")
 ```
 
 # mRNA and protein level correlation under stress
+```{r in-silico-digest, eval = PROTEIN_QUANTIFICATION_METHOD %in% c("IBAC", "IBAC_MC")}
+# This chunk only runs if PROTEIN_QUANTIFICATION_METHOD is "IBAC" or "IBAC_MC"
+# For iBAQ quantification
+MIN_PEPTIDE_LEN = 6
+MAX_PEPTIDE_LEN = 30
+IBAC_MISS_CLEAVAGE = 2
+source("sources/protein_quantification.R")
 
+fasta_files <- list.files(PROTEIN_FASTA, pattern = "\\.fa$", full.names = TRUE)
+protein2tryptic <- process_tryptic(
+    fasta_paths      = fasta_files,
+    output_path      = OUTPUT_PATH,
+    min_peptide_len  = MIN_PEPTIDE_LEN,
+    max_peptide_len  = MAX_PEPTIDE_LEN,
+    missed_cleavages = IBAC_MISS_CLEAVAGE
+)
+```
 ```{r protein-quantification}
+source("sources/protein_quantification.R")
 
+# Protein quantification method — uncomment the desired one:
+# PROTEIN_QUANTIFICATION_METHOD <- "RI"       # Intensity divided by number of razor peptides
+# PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
+# PROTEIN_QUANTIFICATION_METHOD <- "IBAC"        # Total intensity divided by number of expected tryptic peptides
+# PROTEIN_QUANTIFICATION_METHOD <- "IBAC_MC"  # Same as IBAC but with missed cleavage filter
+
+message("Quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
+
+# Dispatch table: method -> quantification function
+quant_fn <- switch(PROTEIN_QUANTIFICATION_METHOD,
+    RI        = function(x) RI_quantification(x),
+    Intensity = function(x) Intensity_quantification(x),
+    IBAC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+    IBAC_MC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+    stop("Unknown quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
+)
+
+quant_data             <- quant_fn(tmt_data)
+completeness_result    <- filter_complete_proteins(quant_data)
+protQ_data             <- completeness_result$filtered_data
+removed_proteins       <- completeness_result$removed_proteins
+
+if (nrow(removed_proteins) > 0) {
+    removed_path <- file.path(
+        OUTPUT_PATH,
+        paste0(PROTEIN_QUANTIFICATION_METHOD, "_removed_proteins_incomplete.tsv")
+    )
+    write.table(
+        removed_proteins %>% arrange(Species, Protein_id),
+        removed_path,
+        sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message(PROTEIN_QUANTIFICATION_METHOD, " removed proteins written to: ", removed_path)
+}
 ```

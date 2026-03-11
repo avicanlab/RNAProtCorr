@@ -177,54 +177,54 @@ filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
 #' @param tmt_path    Path to the directory containing TSV files
 #' @param output_path Path to the output directory (must end with "/")
 #' @return A unified tibble with Species and Replicate columns prepended
-process_tmt <- function(tmt_path, output_path) {
-    tsv_files <- list.files(
-        tmt_path,
-        pattern    = "\\.tsv$",
-        recursive  = TRUE,
-        full.names = TRUE
-    )
+# process_tmt <- function(tmt_path, output_path) {
+#     tsv_files <- list.files(
+#         tmt_path,
+#         pattern    = "\\.tsv$",
+#         recursive  = TRUE,
+#         full.names = TRUE
+#     )
 
-    filter_log <- list()
-    filtered_tmt <- list()
+#     filter_log <- list()
+#     filtered_tmt <- list()
 
-    for (tsv in tsv_files) {
-        curr_species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", tsv)
-        curr_replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", tsv)
+#     for (tsv in tsv_files) {
+#         curr_species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", tsv)
+#         curr_replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", tsv)
 
-        tmt_data <- read_tmt(tsv)
-        filter_result <- filter_tmt(tmt_data, curr_species, curr_replicate)
+#         tmt_data <- read_tmt(tsv)
+#         filter_result <- filter_tmt(tmt_data, curr_species, curr_replicate)
 
-        filtered_tmt[[curr_species]][[curr_replicate]] <- filter_result$filtered_tmt
-        filter_log[[curr_species]][[curr_replicate]] <- filter_result$filter_log
-    }
+#         filtered_tmt[[curr_species]][[curr_replicate]] <- filter_result$filtered_tmt
+#         filter_log[[curr_species]][[curr_replicate]] <- filter_result$filter_log
+#     }
 
-    # Combine all species/replicates into a single tibble
-    unified_tmt <- map_dfr(names(filtered_tmt), function(species) {
-        map_dfr(names(filtered_tmt[[species]]), function(rep) {
-            filtered_tmt[[species]][[rep]] %>%
-                mutate(Species = species, Replicate = rep)
-        })
-    }) %>%
-        select(Species, Replicate, everything())
+#     # Combine all species/replicates into a single tibble
+#     unified_tmt <- map_dfr(names(filtered_tmt), function(species) {
+#         map_dfr(names(filtered_tmt[[species]]), function(rep) {
+#             filtered_tmt[[species]][[rep]] %>%
+#                 mutate(Species = species, Replicate = rep)
+#         })
+#     }) %>%
+#         select(Species, Replicate, everything())
 
-    # Build and write filter log
-    filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
-        mutate(across(-c("species", "replicate"), as.integer))
+#     # Build and write filter log
+#     filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
+#         mutate(across(-c("species", "replicate"), as.integer))
 
-    message("TMT filtering summary:\n")
-    print(filter_log_df)
+#     message("TMT filtering summary:\n")
+#     print(filter_log_df)
 
-    write.table(
-        filter_log_df,
-        paste0(output_path, "filter_log.tsv"),
-        sep       = "\t",
-        row.names = FALSE,
-        quote     = FALSE
-    )
+#     write.table(
+#         filter_log_df,
+#         paste0(output_path, "filter_log.tsv"),
+#         sep       = "\t",
+#         row.names = FALSE,
+#         quote     = FALSE
+#     )
 
-    unified_tmt
-}
+#     unified_tmt
+# }
 
 #' Remove proteins with incomplete data across replicates and treatments
 #'
