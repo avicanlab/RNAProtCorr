@@ -253,7 +253,7 @@ detected_cds_file <- file.path(OUTPUT_PATH, "Detected_CDS.tsv")
 write.table(detected_cds_df, detected_cds_file, sep = "\t")
 plot_barplot_detected_cds(
     detected_cds_df,
-    position = "overlay", path(OUTPUT_PATH, "CDS_detected")
+    position = "overlay", file.path(OUTPUT_PATH, "CDS_detected")
 )
 ```
 
@@ -279,7 +279,7 @@ plots <- map(species_list, function(species) {
 
     p <- plot_tpm_detection_species(classified, species, x_max = x_max)
 
-    output_sp <- path(OUTPUT_PATH, species, "TPM_detection_distribution")
+    output_sp <- file.path(OUTPUT_PATH, species, "TPM_detection_distribution")
     save_plot(
         plot     = p,
         filepath = output_sp,
@@ -310,6 +310,8 @@ message("Combined figure saved: AllSpecies_TPM_detection_distribution.pdf/.png")
 ```
 
 # mRNA and protein level correlation under stress
+
+## Protein quantification
 ```{r in-silico-digest, eval = PROTEIN_QUANTIFICATION_METHOD %in% c("IBAC", "IBAC_MC")}
 # This chunk only runs if PROTEIN_QUANTIFICATION_METHOD is "IBAC" or "IBAC_MC"
 # For iBAQ quantification
@@ -364,4 +366,24 @@ if (nrow(removed_proteins) > 0) {
     )
     message(PROTEIN_QUANTIFICATION_METHOD, " removed proteins written to: ", removed_path)
 }
+protQ_path <- file.path(
+        OUTPUT_PATH,
+        paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
+    )
+write.table(protQ_data, protQ_path, sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## mRNA-protein levels correlation under different stress conditions and control condition
+
+```{r rna-protein-correlation}
+source("sources/correlation.R")
+protQ_meanlog2 <- paste0(PROTEIN_QUANTIFICATION_METHOD, "_meanlog2")
+common_ids <- extract_common_ids(tpm_data, protQ_data)
+
+tpm_data <- tpm_data %>% filter(Protein_id %in% common_ids)
+protQ_data <- protQ_data %>% filter(Protein_id %in% common_ids)
+corr_rna_prot <- calculate_correlation(tpm_data, protQ_data, protQ_meanlog2)
+plot_correlation(
+    corr_rna_prot, protQ_meanlog2, PROTEIN_QUANTIFICATION_METHOD, OUTPUT_PATH
+    )
 ```
