@@ -13,9 +13,10 @@ pkgdown:
 
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-    message = FALSE,
+    message = TRUE,
     warning = FALSE,
     error = FALSE
 )
@@ -26,6 +27,7 @@ knitr::opts_chunk$set(
 library(fs)
 library(readxl)
 library(tidyverse)
+library(patchwork)
 library(limma)
 
 # Load sources functions
@@ -113,6 +115,7 @@ walk(dirs, check_dir, return_error = TRUE)
 
 OUTPUT_PATH <- path("Analyses2")
 dir_create(OUTPUT_PATH)
+for (species in SPECIES) dir_create(path(OUTPUT_PATH, species))
 
 # --- Required files ------------------------------------------------------------
 files <- list(
@@ -130,7 +133,7 @@ list2env(c(dirs, files), envir = .GlobalEnv)
 source("sources/read_data.R")
 # Load RNA tpm data
 rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
-tmp_data <- list()
+tpm_data <- list()
 lapply(rna_files, function(rna_file) {
     species <- get_species_tpm(rna_file)
     abbv <- SPECIES_ABBV_MAP[species]
@@ -140,9 +143,13 @@ lapply(rna_files, function(rna_file) {
             Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment),
             Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
         ) %>%
-        filter(!is.na(Protein_id), !is.na(TPM))
+        filter(!is.na(Protein_id), !is.na(TPM)) %>%
+        log2_transform(value_col = "TPM", pseudocount = TRUE) %>%
+        filter(is.finite(mean_log2)) %>%
+        rename(mean_log2_TPM = mean_log2)
+
     if (!is.null(tpm_raw)) {
-        tmp_data[[species]] <<- tpm_raw
+        tpm_data[[species]] <<- tpm_raw
     }
 })
 ```
@@ -232,9 +239,9 @@ lapply(annotation_files, function(annotation_file) {
 ```{r cds-distribution}
 source("sources/cds_distribution.R")
 
-detected_cds_df <- get_detected_cds(annotation_data, tmp_data, tmt_data)
+detected_cds_df <- get_detected_cds(annotation_data, tpm_data, tmt_data)
 detected_cds_file <- path(OUTPUT_PATH, "Detected_CDS.tsv")
-write.table(detected_cds_df, sep = "\t")
+write.table(detected_cds_df, detected_cds_file, sep = "\t")
 plot_barplot_detected_cds(
     detected_cds_df,
     position = "overlay", path(OUTPUT_PATH, "CDS_detected.png")
@@ -247,8 +254,48 @@ plot_barplot_detected_cds(
 - Fraction of proteins detected: yellow,
 - Transcripts with no corresponding protein detected: dark blue.
 
-```{r , results='hide'}
-print("pika")
+```{r plot-transcript-abundance}
+# Shared x_max across all species for visual consistency
+source("sources/cds_distribution.R")
+x_max <- map_dfr(tpm_data, ~.x) %>%
+    summarise(x_max = ceiling(max(mean_log2_TPM, na.rm = TRUE) / 2.5) * 2.5) %>%
+    pull(x_max)
+    
+plots <- imap(tpm_data, function(tpm_sp, species) {
+    message("Plotting TPM detection for: ", species)
+
+    classified <- classify_tpm_groups(tpm_sp, tmt_data[[species]])
+
+    p <- plot_tpm_detection_species(classified, species, x_max = x_max)
+
+    output_sp <- path(OUTPUT_PATH, species, "TPM_detection_distribution")
+    save_plot(
+        plot = p,
+        filepath = path(OUTPUT_PATH, species, "TPM_detection_distribution"),
+        width = 5,
+        height = 4
+    )
+
+    message("Combined figure saved: ", output_sp, ".pdf/.png")
+
+    p
+})
+
+# Combined figure — all species side by side
+combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "right")
+
+print(combined)
+
+save_plot(
+    plot     = combined,
+    filepath = file.path(OUTPUT_PATH, "AllSpecies_TPM_detection_distribution"),
+    width    = 5 * length(plots),
+    height   = 4
+)
+
+message("Combined figure saved: AllSpecies_TPM_detection_distribution.pdf/.png")
 ```
 
 # mRNA and protein level correlation under stress

@@ -114,7 +114,7 @@ plot_barplot_detected_cds <- function(
 
     p <- p +
         scale_fill_manual(
-            values = c("Transcriptome" = "#89CFF0", "Proteome" = "#f5dd23"),
+            values = c("Transcriptome" = "#C2E3F2", "Proteome" = "#FFD892"),
             name   = NULL
         ) +
         scale_x_discrete(labels = x_labels) +
@@ -133,7 +133,6 @@ plot_barplot_detected_cds <- function(
             panel.grid.minor = element_blank(),
             panel.border = element_rect(colour = "grey70"),
             legend.justification = "top",
-            legend.border = element_rect(colour = "grey70"),
             legend.text = element_text(size = 9),
             legend.key.size = unit(0.4, "cm")
         )
@@ -146,4 +145,123 @@ plot_barplot_detected_cds <- function(
         width    = 5,
         height   = 5
     )
+}
+
+#' Extract Common and Unique Protein IDs Between TPM and Proteomics
+#'
+#' @description
+#' For each species, splits genes into three groups matching the figure:
+#'   - mRNA     : all genes detected in TPM (full set)
+#'   - Protein  : genes detected in both TPM and proteomics
+#'   - Not protein : genes detected in TPM but absent from proteomics
+#'
+#' @param tpm_mean_data  Tibble. Output of log2_mean_tpm(). Must contain
+#'   Protein_id and mean_log2_TPM
+#' @param prot_data      Tibble. Proteomics data with at least Protein_id.
+#'
+#' @return Tibble with columns: Protein_id, mean_log2_TPM, group
+#'   where group is a factor with levels: "mRNA", "Not protein", "Protein"
+classify_tpm_groups <- function(tpm_data, prot_data) {
+    common_ids <- extract_common_ids(tpm_data, prot_data)
+
+    # Collapse to one row per Protein_id by averaging across treatments
+    tpm_unique <- tpm_data %>%
+        filter(is.finite(mean_log2_TPM)) %>%
+        group_by(Protein_id) %>%
+        summarise(mean_log2_TPM = mean(mean_log2_TPM, na.rm = TRUE), .groups = "drop")
+
+    tpm_unique %>%
+        mutate(
+            group = factor(
+                ifelse(Protein_id %in% common_ids, "Protein", "Not protein"),
+                levels = c("mRNA", "Not protein", "Protein")
+            )
+        ) %>%
+        bind_rows(
+            tpm_unique %>%
+                mutate(group = factor("mRNA", levels = c("mRNA", "Not protein", "Protein")))
+        )
+}
+
+#' Plot TPM Distribution by Detection Group for One Species
+#'
+#' @description
+#' Overlapping histogram with three layers (mRNA, Not protein, Protein)
+#' reproducing the reference figure. Layers are drawn back-to-front so
+#' smaller distributions remain visible.
+#'
+#' @param classified_df  Tibble. Output of classify_tpm_groups() for one species.
+#' @param species        Chr. Species name for italic panel title.
+#' @param x_max          Num. Maximum x-axis value. If NULL inferred from data.
+#'
+#' @return A ggplot object.
+plot_tpm_detection_species <- function(classified_df, species, x_max = NULL) {
+    if (is.null(x_max)) {
+        x_max <- ceiling(max(classified_df$mean_log2_TPM, na.rm = TRUE))
+    }
+
+    # Species title: handle "Salmonella_enterica" -> "S. enterica Typhimurium"
+    # style formatting — replace underscore with space, italicise genus + epithet
+    title_str <- gsub("_", " ", species)
+
+    # Draw order: mRNA (back), Not protein (middle), Protein (front)
+    layer_order <- c("mRNA", "Not protein", "Protein")
+
+    group_colours <- c(
+        "mRNA"        = "#C2E3F2", # light blue
+        "Not protein" = "#A3BECC", # dark blue-grey
+        "Protein"     = "#FFD892" # orange/wheat
+    )
+
+    ggplot(
+        classified_df %>%
+            mutate(group = factor(group, levels = layer_order)),
+        aes(x = mean_log2_TPM, fill = group)
+    ) +
+        geom_histogram(
+            data     = ~ filter(.x, group == "mRNA"),
+            binwidth = 0.5,
+            alpha    = 0.85,
+            colour   = NA
+        ) +
+        geom_histogram(
+            data     = ~ filter(.x, group == "Not protein"),
+            binwidth = 0.5,
+            alpha    = 0.85,
+            colour   = NA
+        ) +
+        geom_histogram(
+            data     = ~ filter(.x, group == "Protein"),
+            binwidth = 0.5,
+            alpha    = 0.85,
+            colour   = NA
+        ) +
+        scale_fill_manual(
+            values = group_colours,
+            breaks = layer_order, # legend order: mRNA, Protein, Not protein
+            name   = NULL
+        ) +
+        scale_x_continuous(
+            limits = c(0, x_max),
+            expand = expansion(mult = c(0, 0.02)),
+            breaks = seq(0, x_max, by = 2.5)
+        ) +
+        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+        labs(
+            title = bquote(italic(.(title_str))),
+            x     = "Mean TPM (log2)",
+            y     = "Number of genes"
+        ) +
+        theme_bw(base_size = 11) +
+        theme(
+            plot.title = element_text(face = "italic", hjust = 0.5, size = 11),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            panel.grid.minor = element_blank(),
+            panel.grid.major = element_line(colour = "grey92"),
+            legend.position = c(0.72, 0.82),
+            legend.background = element_rect(fill = "white", colour = NA),
+            legend.key.size = unit(0.4, "cm"),
+            legend.text = element_text(size = 9)
+        )
 }

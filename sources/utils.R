@@ -86,3 +86,46 @@ save_plot <- function(plot, filepath, width = 10, height = 6) {
         message("Saved: ", path)
     })
 }
+
+
+#' Log2 Transform by Group
+#'
+#' @description
+#' Computes mean log2-transformed values grouped by specified columns.
+#' Zeros are excluded before transformation (not detected).
+#' Use pseudocount = TRUE for TPM/RNA data to keep zero-expressed genes.
+#'
+#' @param data        Tibble with expression data
+#' @param value_col   Character. Name of column containing raw values
+#' @param group_cols  Character vector. Columns to group by.
+#'                    Default c("Protein_id", "Treatment").
+#' @param pseudocount Logical. If TRUE adds +1 before log2 (for TPM). Default FALSE.
+#'
+#' @return Tibble with mean_log2 values per group combination
+log2_transform <- function(
+    data,
+    value_col,
+    group_cols    = c("Protein_id", "Treatment"),
+    pseudocount   = FALSE
+) {
+    data %>%
+        filter(.data[[value_col]] > 0) %>%
+        group_by(across(all_of(group_cols))) %>%
+        summarise(
+            mean_log2 = mean(
+                log2(!!sym(value_col) + if (pseudocount) 1 else 0),
+                na.rm = TRUE
+            ),
+            .groups = "drop"
+        )
+}
+
+extract_common_ids <- function(rna_data, protein_data) {
+    prot_ids <- protein_data %>%
+        pull(Protein_id) %>%
+        unique()
+    intersect(
+        rna_data %>% pull(Protein_id) %>% unique(),
+        prot_ids
+    )
+}
