@@ -273,3 +273,51 @@ filter_complete_proteins <- function(tmt_data) {
 
     list(filtered_data = filtered, removed_proteins = removed_proteins)
 }
+
+#' Remove proteins with incomplete data across replicates and treatments
+#'
+#' Keeps only proteins that have at least one value for every unique
+#' Species-Replicate-Treatment combination in the dataset.
+#'
+#' @param tmt_data A tibble with Species, Replicate, and Treatment columns
+#' @return Filtered tibble with complete proteins only
+filter_complete_proteins <- function(tmt_data) {
+  # Get the total number of unique Species-Replicate-Treatment combinations
+  n_conditions <- tmt_data %>%
+    distinct(Replicate, Treatment) %>%
+    nrow()
+
+  all_proteins <- tmt_data %>%
+    distinct(Species, Protein_id)
+
+  n_before <- nrow(all_proteins)
+
+  # Keep only proteins that appear in all conditions
+  filtered <- tmt_data %>%
+    group_by(Species, Protein_id) %>%
+    filter(n_distinct(paste(Replicate, Treatment, sep = "_")) == n_conditions) %>%
+    ungroup()
+
+  kept_proteins <- filtered %>%
+    distinct(Species, Protein_id)
+
+  n_after <- nrow(kept_proteins)
+  n_removed <- n_before - n_after
+
+  # Find removed proteins
+  removed_proteins <- all_proteins %>%
+    anti_join(kept_proteins, by = c("Species", "Protein_id")) %>%
+    # Get additional info for removed proteins from original data
+    left_join(
+      tmt_data,
+      by = c("Species", "Protein_id")
+    )
+
+  message("Protein completeness filtering:\n")
+  message("  Total unique conditions: ", n_conditions, "\n")
+  message("  Proteins before filtering: ", n_before, "\n")
+  message("  Proteins after filtering: ", n_after, "\n")
+  message("  Proteins removed: ", n_removed, "\n\n")
+
+  list(filtered_data = filtered, removed_proteins = removed_proteins)
+}

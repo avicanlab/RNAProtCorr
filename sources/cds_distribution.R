@@ -5,10 +5,8 @@
 #' (unique Protein_id) in RNA and proteomics datasets relative to the total
 #' CDS in the annotation reference.
 #'
-#' @param annotation_data Named list. Output of the annotation loading block.
-#'   Each element is named by species and contains a tibble with at least
-#'   a Protein_id column. Protein_id must already be resolved via
-#'   New_locus_tag -> Old_locus_tag fallback before passing here.
+#' @param annotation_data Tibble. Output of the annotation loading block.
+#'   Must contain at least columns Species and Protein_id.
 #' @param rna_data        Tibble. Detected genes with at least columns Species
 #'   and Protein_id. Typically the long-format TPM data from read_tpm().
 #' @param prot_data       Tibble. Detected proteins with at least columns
@@ -23,16 +21,24 @@
 #'   - pct_rna       : percentage of CDS detected in RNA
 #'   - pct_prot      : percentage of CDS detected in proteomics
 get_detected_cds <- function(annotation_data, rna_data, prot_data) {
-    map_dfr(names(annotation_data), function(sp) {
-        total_cds <- annotation_data[[sp]] %>%
+    species_list <- unique(annotation_data$Species)
+
+    print(annotation_data)
+    print(rna_data)
+    print(prot_data %>% select(c("Species", "Replicate", "Protein ID", "Total Intensity")))
+    map_dfr(species_list, function(sp) {
+        total_cds <- annotation_data %>%
+            filter(Species == sp) %>%
             distinct(Protein_id) %>%
             nrow()
 
-        rna_detected <- rna_data[[sp]] %>%
+        rna_detected <- rna_data %>%
+            filter(Species == sp) %>%
             distinct(Protein_id) %>%
             nrow()
 
-        prot_detected <- prot_data[[sp]] %>%
+        prot_detected <- prot_data %>%
+            filter(Species == sp) %>%
             distinct(Protein_id) %>%
             nrow()
 
@@ -151,21 +157,24 @@ plot_barplot_detected_cds <- function(
 #'
 #' @description
 #' For each species, splits genes into three groups matching the figure:
-#'   - mRNA     : all genes detected in TPM (full set)
-#'   - Protein  : genes detected in both TPM and proteomics
+#'   - mRNA        : all genes detected in TPM (full set)
+#'   - Protein     : genes detected in both TPM and proteomics
 #'   - Not protein : genes detected in TPM but absent from proteomics
 #'
-#' @param tpm_mean_data  Tibble. Output of log2_mean_tpm(). Must contain
-#'   Protein_id and mean_log2_TPM
-#' @param prot_data      Tibble. Proteomics data with at least Protein_id.
+#' @param tpm_data   Tibble. Must contain columns Species, Protein_id,
+#'   and mean_log2_TPM.
+#' @param prot_data  Tibble. Must contain columns Species and Protein_id.
+#' @param sp         Chr. Species name to filter on.
 #'
 #' @return Tibble with columns: Protein_id, mean_log2_TPM, group
 #'   where group is a factor with levels: "mRNA", "Not protein", "Protein"
-classify_tpm_groups <- function(tpm_data, prot_data) {
-    common_ids <- extract_common_ids(tpm_data, prot_data)
+classify_tpm_groups <- function(tpm_data, prot_data, sp) {
+    tpm_sp  <- tpm_data  %>% filter(Species == sp)
+    prot_sp <- prot_data %>% filter(Species == sp)
 
-    # Collapse to one row per Protein_id by averaging across treatments
-    tpm_unique <- tpm_data %>%
+    common_ids <- extract_common_ids(tpm_sp, prot_sp)
+
+    tpm_unique <- tpm_sp %>%
         filter(is.finite(mean_log2_TPM)) %>%
         group_by(Protein_id) %>%
         summarise(mean_log2_TPM = mean(mean_log2_TPM, na.rm = TRUE), .groups = "drop")
