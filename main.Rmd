@@ -103,7 +103,7 @@ TREATMENT_SHAPES <- c(
 )
 
 # Uncomment the quantification you want to use
-PROTEIN_QUANTIFICATION_METHOD = "RI" # Intensity divided by the number of razor peptide
+PROTEIN_QUANTIFICATION_METHOD <- "RI" # Intensity divided by the number of razor peptide
 # PROTEIN_QUANTIFICATION_METHOD = "Intensity" # Direct intensity from TMT analyses
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC" # Total intensity divided by the number of expected peptide after trypsin digestion
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC_MC" Same but miss cleavage parameter filter added
@@ -149,9 +149,6 @@ tpm_data <- map_dfr(rna_files, function(rna_file) {
             Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
         ) %>%
         filter(!is.na(Protein_id), !is.na(TPM)) %>%
-        log2_transform(value_col = "TPM", pseudocount = TRUE) %>%
-        filter(is.finite(mean_log2)) %>%
-        rename(mean_log2_TPM = mean_log2) %>%
         mutate(Species = species)
 })
 ```
@@ -182,7 +179,7 @@ filtered_data <- map_dfr(protein_files, function(protein_file) {
     filtered_raw$filtered_tmt %>%
         mutate(Species = species, Replicate = replicate)
 }) %>%
-left_join(sample_mapping, by=c("Species", "Replicate"), relationship = "many-to-many")
+    left_join(sample_mapping, by = c("Species", "Replicate"), relationship = "many-to-many")
 
 # TODO put this in a function
 # Build and write filter log
@@ -206,12 +203,12 @@ removed_proteins <- completeness_result$removed_proteins
 
 # Write removed proteins table for manual review
 if (nrow(removed_proteins) > 0) {
-write.table(
-    removed_proteins %>% arrange(Species, Protein_id),
-    file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
-    sep = "\t", row.names = FALSE, quote = FALSE
-)
-message("Removed proteins written to: removed_proteins_incomplete.tsv\n")
+    write.table(
+        removed_proteins %>% arrange(Species, Protein_id),
+        file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
+        sep = "\t", row.names = FALSE, quote = FALSE
+    )
+    message("Removed proteins written to: removed_proteins_incomplete.tsv\n")
 }
 ```
 
@@ -250,6 +247,7 @@ source("sources/cds_distribution.R")
 
 detected_cds_df <- get_detected_cds(annotation_data, tpm_data, tmt_data)
 detected_cds_file <- file.path(OUTPUT_PATH, "Detected_CDS.tsv")
+print(detected_cds_df)
 write.table(detected_cds_df, detected_cds_file, sep = "\t")
 plot_barplot_detected_cds(
     detected_cds_df,
@@ -266,16 +264,26 @@ plot_barplot_detected_cds(
 ```{r plot-transcript-abundance}
 # Shared x_max across all species for visual consistency
 source("sources/cds_distribution.R")
-x_max <- tpm_data %>%
+tpm_log2_data <- tpm_data %>%
+    group_by(Species) %>%
+    log2_transform(
+        value_col = "TPM",
+        group_cols = c("Species", "Protein_id", "Treatment"),
+        pseudocount = TRUE
+    ) %>%
+    filter(is.finite(mean_log2)) %>%
+    rename(mean_log2_TPM = mean_log2)
+
+x_max <- tpm_log2_data %>%
     summarise(x_max = ceiling(max(mean_log2_TPM, na.rm = TRUE) / 2.5) * 2.5) %>%
     pull(x_max)
 
-species_list <- unique(tpm_data$Species)
+species_list <- unique(tpm_log2_data$Species)
 
 plots <- map(species_list, function(species) {
     message("Plotting TPM detection for: ", species)
 
-    classified <- classify_tpm_groups(tpm_data, tmt_data, species)
+    classified <- classify_tpm_groups(tpm_log2_data, tmt_data, species)
 
     p <- plot_tpm_detection_species(classified, species, x_max = x_max)
 
@@ -315,9 +323,9 @@ message("Combined figure saved: AllSpecies_TPM_detection_distribution.pdf/.png")
 ```{r in-silico-digest, eval = PROTEIN_QUANTIFICATION_METHOD %in% c("IBAC", "IBAC_MC")}
 # This chunk only runs if PROTEIN_QUANTIFICATION_METHOD is "IBAC" or "IBAC_MC"
 # For iBAQ quantification
-MIN_PEPTIDE_LEN = 6
-MAX_PEPTIDE_LEN = 30
-IBAC_MISS_CLEAVAGE = 2
+MIN_PEPTIDE_LEN <- 6
+MAX_PEPTIDE_LEN <- 30
+IBAC_MISS_CLEAVAGE <- 2
 source("sources/protein_quantification.R")
 
 fasta_files <- list.files(PROTEIN_FASTA, pattern = "\\.fa$", full.names = TRUE)
@@ -342,17 +350,17 @@ message("Quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 
 # Dispatch table: method -> quantification function
 quant_fn <- switch(PROTEIN_QUANTIFICATION_METHOD,
-    RI        = function(x) RI_quantification(x),
+    RI = function(x) RI_quantification(x),
     Intensity = function(x) Intensity_quantification(x),
     IBAC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
     IBAC_MC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
     stop("Unknown quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 )
 
-quant_data             <- quant_fn(tmt_data)
-completeness_result    <- filter_complete_proteins(quant_data)
-protQ_data             <- completeness_result$filtered_data
-removed_proteins       <- completeness_result$removed_proteins
+quant_data <- quant_fn(tmt_data)
+completeness_result <- filter_complete_proteins(quant_data)
+protQ_data <- completeness_result$filtered_data
+removed_proteins <- completeness_result$removed_proteins
 
 if (nrow(removed_proteins) > 0) {
     removed_path <- file.path(
@@ -367,9 +375,9 @@ if (nrow(removed_proteins) > 0) {
     message(PROTEIN_QUANTIFICATION_METHOD, " removed proteins written to: ", removed_path)
 }
 protQ_path <- file.path(
-        OUTPUT_PATH,
-        paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
-    )
+    OUTPUT_PATH,
+    paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
+)
 write.table(protQ_data, protQ_path, sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 
@@ -378,12 +386,145 @@ write.table(protQ_data, protQ_path, sep = "\t", row.names = FALSE, quote = FALSE
 ```{r rna-protein-correlation}
 source("sources/correlation.R")
 protQ_meanlog2 <- paste0(PROTEIN_QUANTIFICATION_METHOD, "_meanlog2")
-common_ids <- extract_common_ids(tpm_data, protQ_data)
+common_ids <- extract_common_ids(tpm_log2_data, protQ_data)
 
-tpm_data <- tpm_data %>% filter(Protein_id %in% common_ids)
+tpm_log2_data <- tpm_log2_data %>% filter(Protein_id %in% common_ids)
 protQ_data <- protQ_data %>% filter(Protein_id %in% common_ids)
-corr_rna_prot <- calculate_correlation(tpm_data, protQ_data, protQ_meanlog2)
+corr_rna_prot <- calculate_correlation(tpm_log2_data, protQ_data, protQ_meanlog2)
 plot_correlation(
     corr_rna_prot, protQ_meanlog2, PROTEIN_QUANTIFICATION_METHOD, OUTPUT_PATH
+)
+```
+
+# Essential genes have higher mRNA-protein level correlations in the three species
+
+```{r get-essential-data}
+source("sources/essential_analyses.R")
+log2_mean_sd_transform <- function(data, value_col, group_cols = c("Species", "Protein_id"), pseudocount = FALSE) {
+    mean_col <- paste0("mean_log2_", value_col)
+    sd_col <- paste0("sd_log2_", value_col)
+
+    mean_data <- data %>%
+        log2_transform(value_col, group_cols = group_cols, pseudocount = pseudocount) %>%
+        filter(is.finite(mean_log2)) %>%
+        dplyr::rename(!!mean_col := mean_log2)
+
+    sd_data <- data %>%
+        log2_mean_sd(value_col, sd_col, group_cols = group_cols, pseudocount = pseudocount)
+
+    left_join(mean_data, sd_data, by = group_cols)
+}
+
+essential_files <- list.files(ESSENTIAL_GENES, pattern = "\\.xlsx$", full.names = TRUE)
+
+essential_df <- map_dfr(essential_files, function(file) {
+    species <- str_extract(basename(file), "Essential_genes_([A-Za-z]+)", group = 1)
+    tibble(
+        Species    = species_essential2tpm_map[species],
+        Protein_id = read_essential_vec(file)
     )
+})
+
+tpm_glob_log2mean_data <- tpm_data %>%
+    filter(Protein_id %in% common_ids) %>%
+    log2_mean_sd_transform("TPM", pseudocount = TRUE)
+
+protQ_glob_log2mean_data <- protQ_data %>%
+    filter(Protein_id %in% common_ids) %>%
+    log2_mean_sd_transform(PROTEIN_QUANTIFICATION_METHOD, pseudocount = FALSE)
+```
+
+## Mean mRNA expression frequency of essential and non-essential genes
+
+```{r essential-distribution-rna}
+source("sources/essential_analyses.R")
+p <- plot_essential_distribution(
+    all_df = tpm_glob_log2mean_data,
+    essential_df = essential_df,
+    log2_col = "mean_log2_TPM",
+    x_lab = "TPM",
+    output_path = OUTPUT_PATH
+)
+print(p)
+save_plot(p, file.path(
+    OUTPUT_PATH, paste0("AllSpecies_", "TPM", "_essential_distribution")
+))
+```
+
+## Mean protein expression frequency of essential and non-essential genes 
+```{r essential-distribution-prot}
+source("sources/essential_analyses.R")
+p <- plot_essential_distribution(
+    all_df = protQ_glob_log2mean_data,
+    essential_df = essential_df,
+    log2_col = paste0("mean_log2_", PROTEIN_QUANTIFICATION_METHOD),
+    x_lab = PROTEIN_QUANTIFICATION_METHOD,
+    output_path = OUTPUT_PATH
+)
+print(p)
+save_plot(p, file.path(
+    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_distribution")
+))
+```
+
+## Essential genes and all genes mRNA-protein level correlation
+
+mRNA-protein level correlations were measured with Pearsson correlation coefficient (R).
+p values were calculated using a Wilcoxon rank sum test.
+
+```{r essential-correlation}
+source("sources/essential_analyses.R")
+essential_tpm_df <- tpm_log2_data %>%
+    semi_join(essential_df, by = c("Species", "Protein_id")) %>%
+    filter(is.finite(mean_log2_TPM))
+essential_protQ_df <- protQ_data %>%
+    semi_join(essential_df, by = c("Species", "Protein_id")) %>%
+    filter(is.finite(.data[[protQ_meanlog2]]))
+
+corr_essential_rna_prot <- calculate_correlation(
+    essential_tpm_df, essential_protQ_df, protQ_meanlog2
+)
+
+p <- plot_essential_vs_all_correlation(
+    corr_rna_prot,
+    corr_essential_rna_prot,
+    PROTEIN_QUANTIFICATION_METHOD,
+    OUTPUT_PATH
+)
+print(p)
+save_plot(p, file.path(
+    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_vs_all_correlation")
+))
+```
+
+## Frequency of standard deviation of mRNA expression
+```{r essential-sd-rna}
+source("sources/essential_analyses.R")
+p <- plot_sd_distribution(
+    all_df = tpm_glob_log2mean_data,
+    essential_df = essential_df,
+    sd_col = "sd_log2_TPM",
+    x_lab = "TPM",
+    output_path = OUTPUT_PATH
+)
+print(p)
+save_plot(p, file.path(
+    OUTPUT_PATH, paste0("AllSpecies_", "TPM", "_essential_sd_distribution")
+))
+```
+
+## Frequency of standard deviation of protein expression 
+```{r essential-sd-prot}
+source("sources/essential_analyses.R")
+p <- plot_sd_distribution(
+    all_df = protQ_glob_log2mean_data,
+    essential_df = essential_df,
+    sd_col = paste0("sd_log2_", PROTEIN_QUANTIFICATION_METHOD),
+    x_lab = PROTEIN_QUANTIFICATION_METHOD,
+    output_path = OUTPUT_PATH
+)
+print(p)
+save_plot(p, file.path(
+    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_distribution_sd_distribution")
+))
 ```

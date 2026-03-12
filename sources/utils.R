@@ -103,10 +103,10 @@ save_plot <- function(plot, filepath, width = 10, height = 6) {
 #'
 #' @return Tibble with mean_log2 values per group combination
 log2_transform <- function(
-    data,
-    value_col,
-    group_cols    = c("Protein_id", "Treatment"),
-    pseudocount   = FALSE
+  data,
+  value_col,
+  group_cols = c("Protein_id", "Treatment"),
+  pseudocount = FALSE
 ) {
     data %>%
         filter(.data[[value_col]] > 0) %>%
@@ -116,6 +116,41 @@ log2_transform <- function(
                 log2(!!sym(value_col) + if (pseudocount) 1 else 0),
                 na.rm = TRUE
             ),
+            .groups = "drop"
+        )
+}
+
+#' Compute SD of log2 Treatment Means per Gene
+#'
+#' @description
+#' For TPM: computes mean per treatment first, then log2, then SD across
+#' treatments. Matches "Standard deviation log2(mean TPM)" label.
+#'
+#' @param data Tibble. Long-format data with Protein_id, Treatment, value column.
+#' @param value_col Chr. Name of column containing raw values.
+#' @param out_col Chr. Name of the output SD column.
+#' @param pseudocount Logical. If TRUE adds +1 before log2 (for TPM).
+#'
+#' @return Tibble with columns: Protein_id, <out_col>
+log2_mean_sd <- function(
+  data, value_col,
+  out_col,
+  group_cols = c("Protein_id", "Species"),
+  pseudocount = FALSE
+) {
+    data %>%
+        filter(.data[[value_col]] > 0) %>%
+        group_by(across(all_of(union(group_cols, "Treatment")))) %>%
+        summarise(
+            mean_val = mean(!!sym(value_col), na.rm = TRUE),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            log2_mean = log2(mean_val + if (pseudocount) 1 else 0)
+        ) %>%
+        group_by(across(all_of(group_cols))) %>%
+        summarise(
+            !!out_col := sd(log2_mean, na.rm = TRUE),
             .groups = "drop"
         )
 }
