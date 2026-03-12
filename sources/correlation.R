@@ -32,8 +32,9 @@ library(ggstar)
 #' @return Tibble with original data plus correlation stats and labels per treatment
 calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
     df <- inner_join(
-        tpm_data, protQ_data, by = c("Species", "Protein_id", "Treatment")
-        )
+        tpm_data, protQ_data,
+        by = c("Species", "Protein_id", "Treatment")
+    )
 
     stats_df <- df %>%
         group_by(Species, Treatment) %>%
@@ -107,8 +108,8 @@ compute_point_density <- function(x, y, n_bins = 50) {
 #'
 #' @return NULL (invisibly). Saves PDF and PNG files to output_path
 plot_correlation <- function(
-    correlation_df, mean_protQ_col, protQ_name, output_path
-    ) {
+  correlation_df, mean_protQ_col, protQ_name, output_path
+) {
     correlation_df %>%
         group_by(Species) %>%
         group_walk(function(sp_df, sp_key) {
@@ -129,16 +130,16 @@ plot_correlation <- function(
             label_df <- sp_df %>%
                 group_by(Treatment) %>%
                 summarise(
-                    x     = min(mean_log2_TPM, na.rm = TRUE),
-                    y     = max(!!sym(mean_protQ_col), na.rm = TRUE),
+                    x = min(mean_log2_TPM, na.rm = TRUE),
+                    y = max(!!sym(mean_protQ_col), na.rm = TRUE),
                     label = dplyr::first(label),
                     .groups = "drop"
                 )
 
             # Order treatments: Control first, then alphabetical
-            treatments         <- unique(sp_df$Treatment)
+            treatments <- unique(sp_df$Treatment)
             ordered_treatments <- c("Ctrl", sort(treatments[treatments != "Ctrl"]))
-            sp_df    <- sp_df    %>% mutate(Treatment = factor(Treatment, levels = ordered_treatments))
+            sp_df <- sp_df %>% mutate(Treatment = factor(Treatment, levels = ordered_treatments))
             label_df <- label_df %>% mutate(Treatment = factor(Treatment, levels = ordered_treatments))
 
             p <- ggplot(sp_df, aes(x = mean_log2_TPM, y = !!sym(mean_protQ_col))) +
@@ -172,13 +173,13 @@ plot_correlation <- function(
                 )
 
             filename <- file.path(
-                output_path, 
+                output_path,
                 species,
                 paste("TPM", protQ_name, "correlation_panels", sep = "_")
             )
 
             print(p)
-            
+
             ggsave(paste0(filename, ".pdf"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
             message("Saved: ", paste0(filename, ".pdf"))
             ggsave(paste0(filename, ".png"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
@@ -191,40 +192,6 @@ plot_correlation <- function(
 # ============================================================================
 # CORRELATION VS EXPOSURE TIME ANALYSIS
 # ============================================================================
-
-# --- Data Preparation --------------------------------------------------------
-
-#' Build Exposure Time Dataframe
-#'
-#' @description
-#' Extracts per-treatment Pearson R values from all species and measurements,
-#' then maps treatments to numeric exposure times and ordered display labels.
-#'
-#' @param results Named list. Output of main_analysis() loop. Each entry must
-#'   contain: species_name (chr) and corr_* tibbles with Treatment and R columns.
-#'
-#' @return Tibble with columns:
-#'   Treatment (chr), R (dbl), species (chr), measurement (chr),
-#'   exposure_time (dbl), exposure_label (ordered factor)
-build_exposure_time_df <- function(results) {
-    map_dfr(results, function(sp) {
-        map_dfr(names(MEASUREMENT_LABELS), function(meas_name) {
-            sp[[meas_name]] %>%
-                distinct(Treatment, R) %>%
-                mutate(
-                    species     = sp$species_name,
-                    measurement = meas_name
-                )
-        })
-    }) %>%
-        mutate(
-            exposure_time = treatment_to_exposure_time[Treatment],
-            exposure_label = factor(
-                EXPOSURE_TIME_LABELS[as.character(exposure_time)],
-                levels = EXPOSURE_TIME_LABELS
-            )
-        )
-}
 
 # --- Statistics --------------------------------------------------------------
 
@@ -241,14 +208,12 @@ build_exposure_time_df <- function(results) {
 #'   measurement (chr), meta_R (dbl), meta_pval (dbl), label (chr)
 compute_exposure_correlations <- function(df) {
     df %>%
-        group_by(measurement) %>%
         summarise(
             meta_R = cor(exposure_time, R, method = "pearson", use = "complete.obs"),
             meta_pval = tryCatch(
                 cor.test(exposure_time, R, method = "pearson")$p.value,
                 error = function(e) NA_real_
-            ),
-            .groups = "drop"
+            )
         ) %>%
         mutate(label = sprintf("R: %.2f\np: %.3f", meta_R, meta_pval))
 }
@@ -271,7 +236,7 @@ build_label_position <- function(df, stats) {
 
     tibble(
         x = last(levels(df$exposure_label)),
-        y = y_max + y_range * 0.15
+        y = y_max + y_range * 0.05
     ) %>%
         bind_cols(stats %>% dplyr::select(label))
 }
@@ -292,32 +257,31 @@ build_label_position <- function(df, stats) {
 #'
 #' @return ggplot object
 build_exposure_plot <- function(df, label_pos, title) {
-    ggplot(df, aes(x = exposure_label, y = R, fill = species)) +
+    ggplot(df, aes(x = exposure_label, y = R, fill = Species)) +
         geom_star(aes(starshape = Treatment), size = 3, alpha = 0.8) +
         scale_starshape_manual(values = TREATMENT_SHAPES) +
         geom_label(
             data = label_pos,
             aes(x = x, y = y, label = label),
-            hjust = 1,
+            hjust = 2,
             vjust = 1,
-            size = 3,
+            linewidth = 1,
             family = "mono",
             color = "black",
             fill = "white",
-            label.color = "black",
             label.size = 0.4,
             label.padding = unit(0.4, "lines"),
             inherit.aes = FALSE
         ) +
-        scale_y_continuous(
-            expand = expansion(mult = c(0.05, 0.25))
-        ) +
+        # scale_y_continuous(
+        #     expand = expansion(mult = c(0.05, 0.25))
+        # ) +
         labs(
-            title = title,
-            x     = "Exposure time",
-            y     = "Pearson R",
-            fill  = "Species",
-            shape = "Treatment"
+            title     = title,
+            x         = "Exposure time",
+            y         = "Pearson R",
+            fill      = "Species",
+            starshape = "Treatment" # was: shape = "Treatment"
         ) +
         theme_minimal() +
         theme(
@@ -325,78 +289,4 @@ build_exposure_plot <- function(df, label_pos, title) {
             strip.text      = element_text(face = "bold"),
             legend.position = "right"
         )
-}
-
-#' Save Plot to PDF and PNG
-#'
-#' @description
-#' Convenience wrapper around ggsave() that saves both PDF and PNG
-#' versions of a plot to the specified output path.
-#'
-#' @param plot ggplot object. The plot to save.
-#' @param filepath Chr. Full path without extension.
-#' @param width Num. Plot width in inches (default: 10).
-#' @param height Num. Plot height in inches (default: 6).
-#'
-#' @return NULL (invisibly)
-save_plot <- function(plot, filepath, width = 10, height = 6) {
-    walk(c(".pdf", ".png"), function(ext) {
-        path <- paste0(filepath, ext)
-        ggsave(path, plot = plot, width = width, height = height, dpi = 300)
-        message("Saved: ", path)
-    })
-}
-
-# --- Orchestration -----------------------------------------------------------
-
-#' Plot and Save All Exposure Time Correlation Figures
-#'
-#' @description
-#' Iterates over all 4 measurements, builds one scatter plot each,
-#' and saves PDF + PNG files named correlation_vs_exposure_time_{measurement}.
-#'
-#' @param df Tibble. Full output of build_exposure_time_df().
-#' @param stats_df Tibble. Output of compute_exposure_correlations().
-#' @param output_path Chr. Directory for saving output files.
-#'
-#' @return NULL (invisibly)
-plot_all_exposure_figures <- function(df, stats_df, output_path) {
-    walk(names(MEASUREMENT_LABELS), function(meas_name) {
-        meas_df <- df %>% filter(measurement == meas_name)
-        meas_stats <- stats_df %>% filter(measurement == meas_name)
-        label_pos <- build_label_position(meas_df, meas_stats)
-
-        p <- build_exposure_plot(
-            df        = meas_df,
-            label_pos = label_pos,
-            title     = MEASUREMENT_LABELS[meas_name]
-        )
-
-        save_plot(
-            plot     = p,
-            filepath = file.path(output_path, paste0("correlation_vs_exposure_time_", meas_name))
-        )
-    })
-}
-
-#' Process Correlation vs Exposure Time for All Species
-#'
-#' @description
-#' Top-level function that builds the exposure time dataframe, computes
-#' global meta-correlations, and generates one plot per measurement.
-#' Called at the end of main_analysis().
-#'
-#' @param results Named list. Output of main_analysis() loop. Each entry
-#'   must contain: species_name (chr) and corr_* tibbles.
-#' @param output_path Chr. Directory for saving output files.
-#'
-#' @return Tibble. Combined exposure time data for all species and
-#'   measurements (invisibly returned for optional downstream use).
-process_correlation_vs_exposure_time <- function(results, output_path) {
-    df <- build_exposure_time_df(results)
-    stats_df <- compute_exposure_correlations(df)
-
-    plot_all_exposure_figures(df, stats_df, output_path)
-
-    invisible(df)
 }

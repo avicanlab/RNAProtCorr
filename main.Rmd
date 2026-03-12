@@ -55,19 +55,7 @@ treatment_list <- c(
     "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
 )
 
-treatment_to_exposure_time <- c(
-    "Ctrl" = 10,
-    "As"   = 10,
-    "Bs"   = 10,
-    "Hyp"  = 240,
-    "Li"   = 10,
-    "Nd"   = 30,
-    "Ns"   = 10,
-    "Oss"  = 10,
-    "Oxs"  = 10,
-    "Sp"   = 241,
-    "Tm"   = 20
-)
+
 
 #' Exposure Time Label Mapping
 #' Maps numeric exposure times (minutes) to display labels
@@ -527,4 +515,51 @@ print(p)
 save_plot(p, file.path(
     OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_distribution_sd_distribution")
 ))
+```
+
+# Stress responses differentially affect mRNA-protein correlation
+
+## mRNA-protein level correlations for conditions exposed stressors
+
+```{r exposure-time}
+source("sources/correlation.R")
+treatment_to_exposure_time <- c(
+    "Ctrl" = 10,
+    "As"   = 10,
+    "Bs"   = 10,
+    "Hyp"  = 240,
+    "Li"   = 10,
+    "Nd"   = 30,
+    "Ns"   = 10,
+    "Oss"  = 10,
+    "Oxs"  = 10,
+    "Sp"   = 241, # Not actual time, but used as value >240 -> >4H
+    "Tm"   = 20
+)
+
+exposure_corr_df <- corr_rna_prot %>%
+    distinct(Species, Treatment, R) %>%
+    mutate(
+        exposure_time = treatment_to_exposure_time[Treatment],
+        exposure_label = factor(
+            EXPOSURE_TIME_LABELS[as.character(exposure_time)],
+            levels = EXPOSURE_TIME_LABELS
+        )
+    )
+print(exposure_corr_df)
+stats_df <- compute_exposure_correlations(exposure_corr_df)
+print(stats_df)
+label_pos <- build_label_position(exposure_corr_df, stats_df)
+
+p <- build_exposure_plot(
+    df        = exposure_corr_df,
+    label_pos = label_pos,
+    title     = "TEST"
+)
+
+print(p)
+save_plot(
+    plot     = p,
+    filepath = file.path(OUTPUT_PATH, paste0("correlation_vs_exposure_time"))
+)
 ```
