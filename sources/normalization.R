@@ -128,24 +128,30 @@ process_plot_pca <- function(norm_path, design_path, output_path, method_name) {
 #'
 #' @param protQ_data  Tibble. Long-format data with Species, Replicate,
 #'   Treatment, Protein_id, and quantification column.
-#' @param protQ       Chr. Name of the quantification column.
 #' @param norm_dir    Chr. Root NormalyzerDE output directory (from
 #'   run_normalization_comparison).
 #' @param output_path Chr. Directory for saving the combined figure.
 #' @return NULL invisibly.
-plot_pca_comparison_grid <- function(protQ_data, protQ, norm_dir, output_path) {
+plot_pca_comparison_grid <- function(protQ_data, norm_dir, output_path) {
     species_list <- unique(protQ_data$Species)
 
-    # Build one PCA tibble per method combining all species
+    design_map <- map(species_list, function(species) {
+        protQ_data %>%
+            filter(Species == species) %>%
+            distinct(Replicate, Treatment) %>%
+            mutate(
+                sample    = paste0(Replicate, "_", Treatment),
+                group     = Treatment
+            )
+    }) %>% setNames(species_list)
+
     pca_all <- map_dfr(NORM_METHODS, function(norm_method) {
         map_dfr(species_list, function(species) {
             norm_file <- file.path(
-                norm_dir, species, protQ,
+                output_path,
+                species,
+                "Normalization",
                 paste0(norm_method, "-normalized.txt")
-            )
-            design_file <- file.path(
-                norm_dir, species,
-                paste0("design_", protQ, ".tsv")
             )
 
             if (!file.exists(norm_file)) {
@@ -168,16 +174,9 @@ plot_pca_comparison_grid <- function(protQ_data, protQ, norm_dir, output_path) {
             pca <- prcomp(t(mat), scale. = TRUE, center = TRUE)
             var_exp <- round(summary(pca)$importance[2, 1:2] * 100, 1)
 
-            design_df <- read.table(design_file, header = TRUE, sep = "\t") %>%
-                as_tibble() %>%
-                mutate(
-                    Treatment = group,
-                    Replicate = str_remove(sample, "_[a-zA-Z]+$")
-                )
-
             as.data.frame(pca$x[, 1:2]) %>%
                 rownames_to_column("sample") %>%
-                left_join(design_df, by = "sample") %>%
+                left_join(design_map[[species]], by = "sample") %>%
                 mutate(
                     Species     = species,
                     method      = norm_method,
@@ -241,7 +240,7 @@ plot_pca_comparison_grid <- function(protQ_data, protQ, norm_dir, output_path) {
         plot_annotation(tag_levels = "A") &
         theme(legend.position = "right")
 
-    out_file <- file.path(output_path, paste0(protQ, "_normalization_PCA_comparison"))
+    out_file <- file.path(output_path, paste0("normalization_PCA_comparison"))
     save_plot(combined, out_file,
         width = 14,
         height = 5 * ceiling(length(NORM_METHODS) / 2),

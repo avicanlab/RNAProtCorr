@@ -714,6 +714,7 @@ vsn_data <- run_normalization(
     output_path = OUTPUT_PATH
 )
 ```
+
 ## 
 
 # Supplementary figures
@@ -726,6 +727,11 @@ source("sources/normalization.R")
 run_normalization_comparison(
     protQ_data,
     protQ = PROTEIN_QUANTIFICATION_METHOD,
+    output_path = OUTPUT_PATH
+)
+plot_pca_comparison_grid(
+    protQ_data  = protQ_data,
+    norm_dir    = file.path(OUTPUT_PATH, "NormTest"),
     output_path = OUTPUT_PATH
 )
 ```
