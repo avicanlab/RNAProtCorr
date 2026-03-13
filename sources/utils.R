@@ -79,10 +79,26 @@ get_species_tpm <- function(tpm_file) {
 #' @param height Num. Plot height in inches (default: 6).
 #'
 #' @return NULL (invisibly)
-save_plot <- function(plot, filepath, width = 10, height = 6) {
-    walk(c(".pdf", ".png"), function(ext) {
-        path <- paste0(filepath, ext)
-        ggsave(path, plot = plot, width = width, height = height, dpi = 300)
+save_plot <- function(
+  plot,
+  filepath,
+  out_format = FIGURE_FORMAT,
+  width = 10,
+  height = 6,
+  units = "in",
+  dpi = 300
+) {
+    walk(out_format, function(ext) {
+        path <- paste0(filepath, ".", ext)
+        print(path)
+        ggsave(
+            path,
+            plot = plot,
+            width = width,
+            height = height,
+            dpi = 300,
+            units = units
+        )
         message("Saved: ", path)
     })
 }
@@ -163,4 +179,41 @@ extract_common_ids <- function(rna_data, protein_data) {
         rna_data %>% pull(Protein_id) %>% unique(),
         prot_ids
     )
+}
+
+#' Format Species Name as Italic Plot Title Expression
+#'
+#' @description
+#' Converts a raw species key (e.g. "Salmonella_enterica") into a plotmath
+#' expression for use as a ggplot title. Genus and epithet are italicised;
+#' strain names (third word) are rendered in plain text. Display names are
+#' looked up from PLOT_SPECIES_NAMES, falling back to underscore-to-space
+#' conversion if the species is not found in the map.
+#'
+#' @param species   Chr. Raw species key, e.g. "Salmonella_enterica".
+#' @param linebreak Logical. If TRUE, strain name is placed on a second line
+#'   via atop() — useful for axis labels where horizontal space is limited.
+#'   If FALSE (default), strain name follows on the same line separated by
+#'   a thin space.
+#'
+#' @return A plotmath call object suitable for use in labs(title = ...) or
+#'   scale_*_discrete(labels = ...).
+format_species_title <- function(species, linebreak = FALSE) {
+    display <- PLOT_SPECIES_NAMES[species]
+    display <- ifelse(is.na(display), gsub("_", " ", species), display)
+
+    parts <- strsplit(display, " ")[[1]]
+
+    if (length(parts) == 3) {
+        genus_epithet <- paste(parts[1:2], collapse = " ")
+        strain <- parts[3]
+
+        if (linebreak) {
+            bquote(atop(italic(.(genus_epithet)), plain(.(strain))))
+        } else {
+            bquote(italic(.(genus_epithet)) ~ plain(.(strain)))
+        }
+    } else {
+        bquote(italic(.(display)))
+    }
 }

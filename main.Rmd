@@ -55,6 +55,11 @@ treatment_list <- c(
     "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
 )
 
+PLOT_SPECIES_NAMES <- c(
+    "Salmonella_enterica"         = "S. enterica Typhimurium",
+    "Staphylococcus_aureus"       = "S. aureus",
+    "Yersinia_pseudotuberculosis" = "Y. pseudotuberculosis"
+)
 
 
 #' Exposure Time Label Mapping
@@ -91,8 +96,8 @@ TREATMENT_SHAPES <- c(
 )
 
 # Uncomment the quantification you want to use
-PROTEIN_QUANTIFICATION_METHOD <- "RI" # Intensity divided by the number of razor peptide
-# PROTEIN_QUANTIFICATION_METHOD = "Intensity" # Direct intensity from TMT analyses
+# PROTEIN_QUANTIFICATION_METHOD <- "RI" # Intensity divided by the number of razor peptide
+PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC" # Total intensity divided by the number of expected peptide after trypsin digestion
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC_MC" Same but miss cleavage parameter filter added
 
@@ -107,7 +112,9 @@ dirs <- list(
 
 walk(dirs, check_dir, return_error = TRUE)
 
-OUTPUT_PATH <- path("Analyses2")
+OUTPUT_PATH <- path("Analyses_intensity")
+FIGURE_FORMAT <- c("png", "svg", "pdf") # "eps", "ps", "tex" (pictex), "jpeg", "tiff", "png", "bmp" or "wmf" (windows only)
+MSG_FIG_FORMAT <- paste0(".", paste(FIGURE_FORMAT, collapse = "/."))
 dir_create(OUTPUT_PATH)
 for (species in SPECIES) dir_create(path(OUTPUT_PATH, species))
 
@@ -196,7 +203,7 @@ if (nrow(removed_proteins) > 0) {
         file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
         sep = "\t", row.names = FALSE, quote = FALSE
     )
-    message("Removed proteins written to: removed_proteins_incomplete.tsv\n")
+    message("Removed proteins written to: removed_proteins_incomplete.tsv")
 }
 ```
 
@@ -237,9 +244,22 @@ detected_cds_df <- get_detected_cds(annotation_data, tpm_data, tmt_data)
 detected_cds_file <- file.path(OUTPUT_PATH, "Detected_CDS.tsv")
 print(detected_cds_df)
 write.table(detected_cds_df, detected_cds_file, sep = "\t")
-plot_barplot_detected_cds(
+p <- plot_barplot_detected_cds(
     detected_cds_df,
-    position = "overlay", file.path(OUTPUT_PATH, "CDS_detected")
+    position = "overlay"
+)
+
+print(p)
+
+output_file <- file.path(OUTPUT_PATH, "CDS_detected")
+save_plot(
+    plot = p,
+    filepath = output_file,
+    width = 8,
+    height = 12,
+)
+message(
+    "CDS detected for mRNA and prtoein saved: ", output_file, MSG_FIG_FORMAT
 )
 ```
 
@@ -268,7 +288,7 @@ x_max <- tpm_log2_data %>%
 
 species_list <- unique(tpm_log2_data$Species)
 
-plots <- map(species_list, function(species) {
+plots <- imap(species_list, function(species, i) {
     message("Plotting TPM detection for: ", species)
 
     classified <- classify_tpm_groups(tpm_log2_data, tmt_data, species)
@@ -279,12 +299,14 @@ plots <- map(species_list, function(species) {
     save_plot(
         plot     = p,
         filepath = output_sp,
-        width    = 5,
-        height   = 4
+        width    = 16,
+        height   = 5
     )
 
-    message("Combined figure saved: ", output_sp, ".pdf/.png")
-
+    message(
+        "CDS distribution for ", species, " saved: ", output_sp, MSG_FIG_FORMAT
+    )
+    if (i > 1) p <- p + theme(axis.title.y = element_blank())
     p
 })
 
@@ -295,14 +317,15 @@ combined <- wrap_plots(plots, nrow = 1) +
 
 print(combined)
 
+output_file <- file.path(OUTPUT_PATH, "TPM_detection_distribution")
 save_plot(
     plot     = combined,
-    filepath = file.path(OUTPUT_PATH, "AllSpecies_TPM_detection_distribution"),
-    width    = 5 * length(plots),
-    height   = 4
+    filepath = file.path(OUTPUT_PATH, "TPM_detection_distribution"),
+    width    = 16,
+    height   = 5
 )
 
-message("Combined figure saved: AllSpecies_TPM_detection_distribution.pdf/.png")
+message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
 # mRNA and protein level correlation under stress
@@ -367,6 +390,11 @@ protQ_path <- file.path(
     paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
 )
 write.table(protQ_data, protQ_path, sep = "\t", row.names = FALSE, quote = FALSE)
+message(
+    PROTEIN_QUANTIFICATION_METHOD,
+    " protein quantification data saved: ",
+    protQ_path
+)
 ```
 
 ## mRNA-protein levels correlation under different stress conditions and control condition
@@ -379,9 +407,22 @@ common_ids <- extract_common_ids(tpm_log2_data, protQ_data)
 tpm_log2_data <- tpm_log2_data %>% filter(Protein_id %in% common_ids)
 protQ_data <- protQ_data %>% filter(Protein_id %in% common_ids)
 corr_rna_prot <- calculate_correlation(tpm_log2_data, protQ_data, protQ_meanlog2)
-plot_correlation(
+p <- plot_correlation(
     corr_rna_prot, protQ_meanlog2, PROTEIN_QUANTIFICATION_METHOD, OUTPUT_PATH
 )
+print(p)
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0("TMP_", PROTEIN_QUANTIFICATION_METHOD, "_correlation_panels")
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 20,
+    units = "in"
+)
+message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
 # Essential genes have higher mRNA-protein level correlations in the three species
@@ -420,6 +461,26 @@ tpm_glob_log2mean_data <- tpm_data %>%
 protQ_glob_log2mean_data <- protQ_data %>%
     filter(Protein_id %in% common_ids) %>%
     log2_mean_sd_transform(PROTEIN_QUANTIFICATION_METHOD, pseudocount = FALSE)
+
+essential_counts_table <- essential_df %>%
+    group_by(Species) %>%
+    summarise(n_essential_total = n_distinct(Protein_id), .groups = "drop") %>%
+    left_join(
+        essential_df %>%
+            semi_join(tpm_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
+            group_by(Species) %>%
+            summarise(n_essential_rna = n_distinct(Protein_id), .groups = "drop"),
+        by = "Species"
+    ) %>%
+    left_join(
+        essential_df %>%
+            semi_join(protQ_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
+            group_by(Species) %>%
+            summarise(n_essential_prot = n_distinct(Protein_id), .groups = "drop"),
+        by = "Species"
+    )
+
+print(essential_counts_table)
 ```
 
 ## Mean mRNA expression frequency of essential and non-essential genes
@@ -434,9 +495,18 @@ p <- plot_essential_distribution(
     output_path = OUTPUT_PATH
 )
 print(p)
-save_plot(p, file.path(
-    OUTPUT_PATH, paste0("AllSpecies_", "TPM", "_essential_distribution")
-))
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0("TPM", "_essential_distribution")
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 5,
+    units = "in"
+)
+message("TPM essential distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
 ## Mean protein expression frequency of essential and non-essential genes 
@@ -450,9 +520,26 @@ p <- plot_essential_distribution(
     output_path = OUTPUT_PATH
 )
 print(p)
-save_plot(p, file.path(
-    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_distribution")
-))
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0(
+        PROTEIN_QUANTIFICATION_METHOD,
+        "_essential_distribution"
+    )
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 5,
+    units = "in"
+)
+message(
+    PROTEIN_QUANTIFICATION_METHOD,
+    " essential distribution combined figure saved: ",
+    output_file,
+    MSG_FIG_FORMAT
+)
 ```
 
 ## Essential genes and all genes mRNA-protein level correlation
@@ -480,9 +567,25 @@ p <- plot_essential_vs_all_correlation(
     OUTPUT_PATH
 )
 print(p)
-save_plot(p, file.path(
-    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_vs_all_correlation")
-))
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0(
+        PROTEIN_QUANTIFICATION_METHOD,
+        "_essential_vs_all_correlation"
+    )
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 5,
+    units = "in"
+)
+message(
+    "mRNA-Protein correlation all genes vs essential genes combined figure saved: ",
+    output_file,
+    MSG_FIG_FORMAT
+)
 ```
 
 ## Frequency of standard deviation of mRNA expression
@@ -496,13 +599,23 @@ p <- plot_sd_distribution(
     output_path = OUTPUT_PATH
 )
 print(p)
-save_plot(p, file.path(
-    OUTPUT_PATH, paste0("AllSpecies_", "TPM", "_essential_sd_distribution")
-))
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0("TPM", "_essential_sd_distribution")
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 5,
+    units = "in"
+)
+message("TPM essential standard deviation distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
 ## Frequency of standard deviation of protein expression 
 ```{r essential-sd-prot}
+source("sources/utils.R")
 source("sources/essential_analyses.R")
 p <- plot_sd_distribution(
     all_df = protQ_glob_log2mean_data,
@@ -512,9 +625,26 @@ p <- plot_sd_distribution(
     output_path = OUTPUT_PATH
 )
 print(p)
-save_plot(p, file.path(
-    OUTPUT_PATH, paste0("AllSpecies_", PROTEIN_QUANTIFICATION_METHOD, "_essential_distribution_sd_distribution")
-))
+output_file <- file.path(
+    OUTPUT_PATH,
+    paste0(
+        PROTEIN_QUANTIFICATION_METHOD,
+        "_essential_sd_distribution"
+    )
+)
+save_plot(
+    p,
+    output_file,
+    width = 16,
+    height = 5,
+    units = "in"
+)
+message(
+    PROTEIN_QUANTIFICATION_METHOD,
+    " essential standard deviation distribution combined figure saved: ",
+    output_file,
+    MSG_FIG_FORMAT
+)
 ```
 
 # Stress responses differentially affect mRNA-protein correlation
@@ -524,7 +654,6 @@ save_plot(p, file.path(
 ```{r exposure-time}
 source("sources/correlation.R")
 treatment_to_exposure_time <- c(
-    "Ctrl" = 10,
     "As"   = 10,
     "Bs"   = 10,
     "Hyp"  = 240,
@@ -537,7 +666,9 @@ treatment_to_exposure_time <- c(
     "Tm"   = 20
 )
 
+print(corr_rna_prot)
 exposure_corr_df <- corr_rna_prot %>%
+    filter_out(Treatment == "Ctrl") %>%
     distinct(Species, Treatment, R) %>%
     mutate(
         exposure_time = treatment_to_exposure_time[Treatment],
@@ -553,13 +684,21 @@ label_pos <- build_label_position(exposure_corr_df, stats_df)
 
 p <- build_exposure_plot(
     df        = exposure_corr_df,
-    label_pos = label_pos,
-    title     = "TEST"
+    label_pos = label_pos
 )
 
 print(p)
+output_file <- file.path(OUTPUT_PATH, paste0("correlation_vs_exposure_time"))
 save_plot(
-    plot     = p,
-    filepath = file.path(OUTPUT_PATH, paste0("correlation_vs_exposure_time"))
+    p,
+    output_file,
+    width = 12,
+    height = 5,
+    units = "in"
 )
+message("Correlation vs exposure time saved : ", output_file, MSG_FIG_FORMAT)
 ```
+
+## Protein normalization
+
+## 

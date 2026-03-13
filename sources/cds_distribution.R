@@ -23,9 +23,6 @@
 get_detected_cds <- function(annotation_data, rna_data, prot_data) {
     species_list <- unique(annotation_data$Species)
 
-    print(annotation_data)
-    print(rna_data)
-    print(prot_data %>% select(c("Species", "Replicate", "Protein ID", "Total Intensity")))
     map_dfr(species_list, function(sp) {
         total_cds <- annotation_data %>%
             filter(Species == sp) %>%
@@ -70,10 +67,11 @@ get_detected_cds <- function(annotation_data, rna_data, prot_data) {
 #'   - "dodge"   : bars placed side by side (default)
 #'   - "overlay" : bars overlapping, RNA behind and wider, protein in front
 #'     and narrower
+#' @param show_percent bool. Show the percentage on bar.
 #'
 #' @return A ggplot object. Save with save_plot() at the desired dimensions.
 plot_barplot_detected_cds <- function(
-  detected_cds_data, position = "overlay", output_path
+  detected_cds_data, position = "overlay", show_percent = FALSE
 ) {
     plot_df <- detected_cds_data %>%
         pivot_longer(
@@ -91,7 +89,7 @@ plot_barplot_detected_cds <- function(
 
     species_levels <- levels(plot_df$Species)
     x_labels <- setNames(
-        lapply(species_levels, function(s) bquote(italic(.(gsub("_", " ", s))))),
+        lapply(species_levels, format_species_title, linebreak = TRUE),
         species_levels
     )
 
@@ -99,16 +97,34 @@ plot_barplot_detected_cds <- function(
         p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
             geom_col(
                 data     = ~ filter(.x, type == "Transcriptome"),
-                width    = 0.6,
-                alpha    = 0.5,
+                width    = 0.8,
+                alpha    = 1,
                 position = "identity"
             ) +
             geom_col(
                 data     = ~ filter(.x, type == "Proteome"),
-                width    = 0.6,
-                alpha    = 0.5,
+                width    = 0.8,
+                alpha    = 1,
                 position = "identity"
             )
+
+        if (show_percent) {
+            p <- p +
+                geom_text(
+                    data = ~ filter(.x, type == "Transcriptome"),
+                    aes(label = sprintf("%.1f%%", pct), y = pct),
+                    vjust = -0.4,
+                    size = 3.5,
+                    color = "grey30"
+                ) +
+                geom_text(
+                    data = ~ filter(.x, type == "Proteome"),
+                    aes(label = sprintf("%.1f%%", pct), y = pct),
+                    vjust = 1.4,
+                    size = 3.5,
+                    color = "grey30"
+                )
+        }
     } else {
         p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
             geom_col(
@@ -116,9 +132,20 @@ plot_barplot_detected_cds <- function(
                 width    = 0.65,
                 alpha    = 0.85
             )
+
+        if (show_percent) {
+            p <- p +
+                geom_text(
+                    aes(label = sprintf("%.1f%%", pct)),
+                    position = position_dodge(width = 0.75),
+                    vjust = -0.4,
+                    size = 3.5,
+                    color = "grey30"
+                )
+        }
     }
 
-    p <- p +
+    p +
         scale_fill_manual(
             values = c("Transcriptome" = "#C2E3F2", "Proteome" = "#FFD892"),
             name   = NULL
@@ -132,25 +159,16 @@ plot_barplot_detected_cds <- function(
         labs(x = NULL, y = "CDS detected (%)") +
         theme_bw(base_size = 11) +
         theme(
-            axis.text.x = element_text(size = 9, angle = 15, hjust = 1),
-            axis.text.y = element_text(size = 9),
-            axis.title.y = element_text(size = 10),
+            axis.text.x        = element_text(size = 14, angle = 25, hjust = 1),
+            axis.text.y        = element_text(size = 12),
+            axis.title.y       = element_text(size = 14),
             panel.grid.major.x = element_blank(),
-            panel.grid.minor = element_blank(),
-            panel.border = element_rect(colour = "grey70"),
-            legend.justification = "top",
-            legend.text = element_text(size = 9),
-            legend.key.size = unit(0.4, "cm")
+            panel.grid.minor   = element_blank(),
+            panel.border       = element_rect(colour = "grey70"),
+            legend.position    = "top",
+            legend.text        = element_text(size = 14),
+            legend.key.size    = unit(0.6, "cm")
         )
-
-    print(p)
-
-    save_plot(
-        plot     = p,
-        filepath = output_path,
-        width    = 5,
-        height   = 5
-    )
 }
 
 #' Extract Common and Unique Protein IDs Between TPM and Proteomics
@@ -169,7 +187,7 @@ plot_barplot_detected_cds <- function(
 #' @return Tibble with columns: Protein_id, mean_log2_TPM, group
 #'   where group is a factor with levels: "mRNA", "Not protein", "Protein"
 classify_tpm_groups <- function(tpm_data, prot_data, sp) {
-    tpm_sp  <- tpm_data  %>% filter(Species == sp)
+    tpm_sp <- tpm_data %>% filter(Species == sp)
     prot_sp <- prot_data %>% filter(Species == sp)
 
     common_ids <- extract_common_ids(tpm_sp, prot_sp)
@@ -209,17 +227,17 @@ plot_tpm_detection_species <- function(classified_df, species, x_max = NULL) {
         x_max <- ceiling(max(classified_df$mean_log2_TPM, na.rm = TRUE))
     }
 
-    # Species title: handle "Salmonella_enterica" -> "S. enterica Typhimurium"
-    # style formatting — replace underscore with space, italicise genus + epithet
-    title_str <- gsub("_", " ", species)
+    # Build italic title with optional plain suffix for strain names
+    display <- PLOT_SPECIES_NAMES[species]
+    display <- ifelse(is.na(display), gsub("_", " ", species), display)
+    parts <- strsplit(display, " ")[[1]]
+    title_expr <- format_species_title(species)
 
-    # Draw order: mRNA (back), Not protein (middle), Protein (front)
     layer_order <- c("mRNA", "Not protein", "Protein")
-
     group_colours <- c(
-        "mRNA"        = "#C2E3F2", # light blue
-        "Not protein" = "#A3BECC", # dark blue-grey
-        "Protein"     = "#FFD892" # orange/wheat
+        "mRNA"        = "#C2E3F2",
+        "Not protein" = "#A3BECC",
+        "Protein"     = "#FFD892"
     )
 
     ggplot(
@@ -228,28 +246,18 @@ plot_tpm_detection_species <- function(classified_df, species, x_max = NULL) {
         aes(x = mean_log2_TPM, fill = group)
     ) +
         geom_histogram(
-            data     = ~ filter(.x, group == "mRNA"),
-            binwidth = 0.5,
-            alpha    = 0.85,
-            colour   = NA
+            data = ~ filter(.x, group == "mRNA"),
+            binwidth = 0.5, alpha = 0.85, colour = NA
         ) +
         geom_histogram(
-            data     = ~ filter(.x, group == "Not protein"),
-            binwidth = 0.5,
-            alpha    = 0.85,
-            colour   = NA
+            data = ~ filter(.x, group == "Not protein"),
+            binwidth = 0.5, alpha = 0.85, colour = NA
         ) +
         geom_histogram(
-            data     = ~ filter(.x, group == "Protein"),
-            binwidth = 0.5,
-            alpha    = 0.85,
-            colour   = NA
+            data = ~ filter(.x, group == "Protein"),
+            binwidth = 0.5, alpha = 0.85, colour = NA
         ) +
-        scale_fill_manual(
-            values = group_colours,
-            breaks = layer_order, # legend order: mRNA, Protein, Not protein
-            name   = NULL
-        ) +
+        scale_fill_manual(values = group_colours, breaks = layer_order, name = NULL) +
         scale_x_continuous(
             limits = c(0, x_max),
             expand = expansion(mult = c(0, 0.02)),
@@ -257,20 +265,20 @@ plot_tpm_detection_species <- function(classified_df, species, x_max = NULL) {
         ) +
         scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
         labs(
-            title = bquote(italic(.(title_str))),
+            title = title_expr,
             x     = "Mean TPM (log2)",
             y     = "Number of genes"
         ) +
-        theme_bw(base_size = 11) +
+        theme_bw(base_size = 10) +
         theme(
-            plot.title = element_text(face = "italic", hjust = 0.5, size = 11),
-            axis.title = element_text(size = 10),
-            axis.text = element_text(size = 9),
-            panel.grid.minor = element_blank(),
-            panel.grid.major = element_line(colour = "grey92"),
-            legend.position = c(0.72, 0.82),
+            plot.title        = element_text(hjust = 0.5, size = 12),
+            axis.title        = element_text(size = 12),
+            axis.text         = element_text(size = 11),
+            panel.grid.minor  = element_blank(),
+            panel.grid.major  = element_line(colour = "grey92"),
+            legend.position   = c(0.72, 0.82),
             legend.background = element_rect(fill = "white", colour = NA),
-            legend.key.size = unit(0.4, "cm"),
-            legend.text = element_text(size = 9)
+            legend.key.size   = unit(0.4, "cm"),
+            legend.text       = element_text(size = 12)
         )
 }

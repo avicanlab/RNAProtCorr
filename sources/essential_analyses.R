@@ -56,6 +56,11 @@ plot_essential_distribution <- function(
                 data = sp_df
             )$p.value
 
+            display <- PLOT_SPECIES_NAMES[species]
+            display <- ifelse(is.na(display), gsub("_", " ", species), display)
+            parts <- strsplit(display, " ")[[1]]
+            title_sp <- format_species_title(species)
+
             p <- ggplot(
                 sp_df,
                 aes(x = .data[[log2_col]], y = after_stat(density), fill = group)
@@ -71,26 +76,32 @@ plot_essential_distribution <- function(
                     hjust = 1.1, vjust = 1.5, size = 3.5, fontface = "italic"
                 ) +
                 labs(
-                    title = bquote(italic(.(gsub("_", " ", species)))),
+                    title = title_sp,
                     x     = x_label,
                     y     = "Frequency",
                     fill  = NULL
                 ) +
                 theme_minimal() +
                 theme(
-                    plot.title      = element_text(face = "italic"),
-                    legend.position = c(0.85, 0.85)
+                    plot.title = element_text(face = "italic", size = 14),
+                    legend.position = c(0.85, 0.85),
+                    axis.title = element_text(size = 12),
+                    axis.text = element_text(size = 10),
+                    legend.text = element_text(size = 14)
                 )
 
             save_plot(p, file.path(
                 output_path, species, paste0(x_lab, "_essential_distribution")
-            ))
+            ),
+            width = 24, height = 8
+            )
+
             p
         })
 
     # Combined figure — all species side by side
     wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") &
+        plot_layout(guides = "collect", axes = "collect_y") &
         theme(legend.position = "top")
 }
 
@@ -109,6 +120,11 @@ plot_essential_vs_all_correlation <- function(
         group_map(function(sp_df, sp_key) {
             species <- sp_key$Species
 
+            display <- PLOT_SPECIES_NAMES[species]
+            display <- ifelse(is.na(display), gsub("_", " ", species), display)
+            parts <- strsplit(display, " ")[[1]]
+            title_sp <- format_species_title(species)
+
             p <- ggplot(sp_df, aes(x = R_all, y = R_essential, color = Treatment)) +
                 geom_abline(
                     slope     = 1,
@@ -122,13 +138,12 @@ plot_essential_vs_all_correlation <- function(
                     scales::hue_pal()(nrow(sp_df)),
                     sp_df$Treatment
                 )) +
-                coord_fixed(
-                    ratio = 1,
-                    xlim  = c(0.4, 1),
-                    ylim  = c(0.4, 1)
+                coord_cartesian(
+                    xlim = c(0.4, 1),
+                    ylim = c(0.4, 1)
                 ) +
                 labs(
-                    title = bquote(italic(.(gsub("_", " ", species)))),
+                    title = title_sp,
                     x     = "All genes'\nmRNA-protein level correlation",
                     y     = "Essential genes'\nmRNA-protein level correlation",
                     color = "Treatment"
@@ -150,7 +165,7 @@ plot_essential_vs_all_correlation <- function(
         })
 
     wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") &
+        plot_layout(guides = "collect", axes = "collect_y") &
         theme(legend.position = "right")
 }
 
@@ -185,9 +200,9 @@ plot_sd_distribution <- function(
         filter(is.finite(.data[[sd_col]]))
 
     x_label <- if (x_lab == "TPM") {
-        bquote("Standard deviation of mRNA - " ~ log[2](mean ~ TPM))
+        bquote(atop("Standard deviation of mRNA -", log[2](mean ~ TPM)))
     } else {
-        bquote("Standard deviation of protein - " ~ log[2](mean ~ .(x_lab)))
+        bquote(atop("Standard deviation of protein -", log[2](mean ~ .(x_lab))))
     }
 
     plots <- condition_df %>%
@@ -198,6 +213,12 @@ plot_sd_distribution <- function(
                 as.formula(paste(sd_col, "~ group")),
                 data = sp_df
             )$p.value
+
+            display <- PLOT_SPECIES_NAMES[species]
+            display <- ifelse(is.na(display), gsub("_", " ", species), display)
+            parts <- strsplit(display, " ")[[1]]
+            title_sp <- format_species_title(species)
+
             p <- ggplot(
                 sp_df,
                 aes(x = .data[[sd_col]], color = group)
@@ -221,29 +242,32 @@ plot_sd_distribution <- function(
                     fontface = "italic"
                 ) +
                 labs(
-                    title = bquote(italic(.(gsub("_", " ", species)))),
+                    title = title_sp,
                     x     = x_label,
                     y     = "Frequency",
                     color = NULL
                 ) +
                 theme_bw() +
                 theme(
-                    plot.title        = element_text(hjust = 0.5),
-                    legend.position   = c(0.75, 0.85),
-                    legend.background = element_rect(fill = "white", color = NA)
+                    plot.title = element_text(hjust = 0.5),
+                    legend.position = c(0.75, 0.85),
+                    legend.background = element_rect(fill = "white", color = NA),
+                    axis.title = element_text(size = 12),
+                    axis.text = element_text(size = 10),
+                    legend.text = element_text(size = 14)
                 )
 
             save_plot(
                 plot     = p,
                 filepath = file.path(output_path, species, paste0(x_lab, "_sd_distribution")),
-                width    = 5,
-                height   = 5
+                width    = 16,
+                height   = 8
             )
             p
         })
 
     # Combined figure — all species side by side
     wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") &
+        plot_layout(guides = "collect", axes = "collect_y") &
         theme(legend.position = "top")
 }

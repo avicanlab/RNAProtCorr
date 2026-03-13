@@ -39,25 +39,18 @@ calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
     stats_df <- df %>%
         group_by(Species, Treatment) %>%
         summarise(
-            R = cor(
-                mean_log2_TPM,
-                .data[[mean_protQ_col]],
-                method = "pearson",
-                use    = "complete.obs"
-            ),
-            p_value = tryCatch(
-                cor.test(
-                    mean_log2_TPM,
-                    .data[[mean_protQ_col]],
-                    method = "pearson"
-                )$p.value,
-                error = function(e) NA_real_
-            ),
+            cor_test = list(tryCatch(
+                cor.test(mean_log2_TPM, .data[[mean_protQ_col]], method = "pearson"),
+                error = function(e) NULL
+            )),
             .groups = "drop"
         ) %>%
         mutate(
-            label = sprintf("R: %.2f\np-value: %.2e", R, p_value)
-        )
+            R = map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$estimate),
+            p_value = map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$p.value),
+            label = sprintf("R: %.2f\np: %.2e", R, p_value)
+        ) %>%
+        dplyr::select(-cor_test)
     left_join(df, stats_df, by = c("Species", "Treatment"))
 }
 
@@ -110,12 +103,16 @@ compute_point_density <- function(x, y, n_bins = 50) {
 plot_correlation <- function(
   correlation_df, mean_protQ_col, protQ_name, output_path
 ) {
-    correlation_df %>%
+    plots <- correlation_df %>%
         group_by(Species) %>%
-        group_walk(function(sp_df, sp_key) {
+        group_map(function(sp_df, sp_key) {
             species <- sp_key$Species
             message("Plotting correlation for: ", species)
 
+            display <- PLOT_SPECIES_NAMES[species]
+            display <- ifelse(is.na(display), gsub("_", " ", species), display)
+            parts <- strsplit(display, " ")[[1]]
+            title_sp <- format_species_title(species)
             # Compute point density per treatment
             sp_df <- sp_df %>%
                 nest(data = -Treatment) %>%
@@ -155,15 +152,15 @@ plot_correlation <- function(
                 geom_text(
                     data = label_df,
                     aes(x = x, y = y, label = label),
-                    hjust = 0, vjust = 1, size = 2.8, family = "mono"
+                    hjust = 0, vjust = 1, size = 4, fontface = "bold", family = "mono"
                 ) +
                 facet_wrap(~Treatment, scales = "free", ncol = 6) +
                 labs(
                     x     = "Mean TPM (log2)",
                     y     = paste("Mean", protQ_name, "(log2)"),
-                    title = bquote(italic(.(gsub("_", " ", species))))
+                    title = title_sp
                 ) +
-                theme_bw(base_size = 10) +
+                theme_bw(base_size = 14) +
                 theme(
                     plot.title       = element_text(face = "italic"),
                     strip.background = element_blank(),
@@ -178,15 +175,15 @@ plot_correlation <- function(
                 paste("TPM", protQ_name, "correlation_panels", sep = "_")
             )
 
-            print(p)
-
-            ggsave(paste0(filename, ".pdf"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
-            message("Saved: ", paste0(filename, ".pdf"))
-            ggsave(paste0(filename, ".png"), plot = p, width = 24, height = 6, units = "in", dpi = 300)
-            message("Saved: ", paste0(filename, ".png"))
+            save_plot(p, filename, width = 24, height = 10, units = "in", dpi = 300, out_format = FIGURE_FORMAT)
+            message("mRNA-protein correlatio for", species, "saved: ", filename, MSG_FIG_FORMAT)
+            p
         })
 
-    invisible(NULL)
+    # Combined: one species per row, shared x axis
+    wrap_plots(plots, ncol = 1) +
+        plot_layout(guides = "keep", axes = "collect_x") &
+        theme(legend.position = "right")
 }
 
 # ============================================================================
@@ -209,9 +206,9 @@ plot_correlation <- function(
 compute_exposure_correlations <- function(df) {
     df %>%
         summarise(
-            meta_R = cor(exposure_time, R, method = "pearson", use = "complete.obs"),
+            meta_R = cor(exposure_time, R, method = "spearman", use = "complete.obs"),
             meta_pval = tryCatch(
-                cor.test(exposure_time, R, method = "pearson")$p.value,
+                cor.test(exposure_time, R, method = "spearman")$p.value,
                 error = function(e) NA_real_
             )
         ) %>%
@@ -253,10 +250,9 @@ build_label_position <- function(df, stats) {
 #' @param df Tibble. Data for one measurement. Output of build_exposure_time_df()
 #'   filtered to a single measurement value.
 #' @param label_pos Tibble. Single-row tibble from build_label_position().
-#' @param title Chr. Plot title (measurement display name).
 #'
 #' @return ggplot object
-build_exposure_plot <- function(df, label_pos, title) {
+build_exposure_plot <- function(df, label_pos) {
     ggplot(df, aes(x = exposure_label, y = R, fill = Species)) +
         geom_star(aes(starshape = Treatment), size = 3, alpha = 0.8) +
         scale_starshape_manual(values = TREATMENT_SHAPES) +
@@ -276,8 +272,8 @@ build_exposure_plot <- function(df, label_pos, title) {
         # scale_y_continuous(
         #     expand = expansion(mult = c(0.05, 0.25))
         # ) +
+        scale_fill_discrete(labels = PLOT_SPECIES_NAMES) +
         labs(
-            title     = title,
             x         = "Exposure time",
             y         = "Pearson R",
             fill      = "Species",
@@ -285,8 +281,11 @@ build_exposure_plot <- function(df, label_pos, title) {
         ) +
         theme_minimal() +
         theme(
-            plot.title      = element_text(face = "bold"),
-            strip.text      = element_text(face = "bold"),
-            legend.position = "right"
+            plot.title = element_blank(),
+            strip.text = element_text(face = "bold"),
+            legend.position = "right",
+            axis.title = element_text(size = 12),
+            axis.text = element_text(size = 10),
+            legend.text = element_text(size = 14)
         )
 }
