@@ -16,13 +16,13 @@ pkgdown:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-    message = TRUE,
+    message = FALSE,
     warning = FALSE,
     error = FALSE
 )
 ```
 
-```{r load-environment}
+```{r load-environment, results='hide'}
 # Load library
 library(fs)
 library(readxl)
@@ -130,7 +130,7 @@ list2env(c(dirs, files), envir = .GlobalEnv)
 ```
 
 # Data loading and processing
-```{r load-tpm, results='hide'}
+```{r load-tpm, results='hide', message=TRUE}
 source("sources/read_data.R")
 # Load RNA tpm data
 rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
@@ -701,4 +701,31 @@ message("Correlation vs exposure time saved : ", output_file, MSG_FIG_FORMAT)
 
 ## Protein normalization
 
+```{r normalization}
+source("sources/normalization.R")
+
+NORMALIZATION_METHOD <- "VSN" # Go to supplementary to run normalization comparison
+
+# Single method normalization — returns tidy tibble
+vsn_data <- run_normalization(
+    protQ_data,
+    protQ = PROTEIN_QUANTIFICATION_METHOD,
+    method = NORMALIZATION_METHOD,
+    output_path = OUTPUT_PATH
+)
+```
 ## 
+
+# Supplementary figures
+
+## Normalization
+```{r normalization-comparison}
+source("sources/normalization.R")
+# Method comparison — generates NormalyzerDE reports and PCA plots
+
+run_normalization_comparison(
+    protQ_data,
+    protQ = PROTEIN_QUANTIFICATION_METHOD,
+    output_path = OUTPUT_PATH
+)
+```

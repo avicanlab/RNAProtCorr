@@ -1,33 +1,14 @@
 # ============================================================================
-# Protein Normalization Pipeline
+# Protein Normalization Method Comparison
 # ============================================================================
-#
-# Description:
-#   Pipeline for normalizing protein quantification data (RI, iBAQ, iBAQ_MC)
-#   across multiple species and experimental conditions using NormalyzerDE.
-#   Generates normalized datasets and PCA visualizations for method selection.
-#
-# Expected input columns: Species, Replicate, Treatment, Protein_id, <protQ>
-# ============================================================================
-
-library(tidyverse)
 library(NormalyzerDE)
 
 NORM_METHODS <- c("Log2", "VSN", "CycLoess", "Quantile", "Median", "Mean", "GI", "RLR")
 
-
 # ============================================================================
-# NORMALIZATION HELPERS
+# HELPERS
 # ============================================================================
 
-#' Create a NormalyzerDE design file matched to a data matrix
-#'
-#' Reads column names from the wide-format matrix and builds a design table
-#' where group is the treatment (replicate prefix stripped from sample name).
-#'
-#' @param data_path  Path to wide-format TSV (Protein_id + Replicate_Treatment cols).
-#' @param tmp_dir    Directory for temp output. Default tempdir().
-#' @return Path to the written design TSV.
 create_design_for_matrix <- function(data_path, tmp_dir = tempdir()) {
     sample_cols <- read.table(data_path,
         sep = "\t", header = TRUE,
@@ -38,7 +19,7 @@ create_design_for_matrix <- function(data_path, tmp_dir = tempdir()) {
 
     design_df <- tibble(
         sample = sample_cols,
-        group  = str_remove(sample_cols, "^R\\d+_") # R1_Ctrl -> Ctrl
+        group  = str_remove(sample_cols, "^R\\d+_")
     )
 
     temp_file <- tempfile(pattern = "design_", tmpdir = tmp_dir, fileext = ".tsv")
@@ -46,16 +27,6 @@ create_design_for_matrix <- function(data_path, tmp_dir = tempdir()) {
     temp_file
 }
 
-
-#' Pivot long-format protein data to wide format for NormalyzerDE
-#'
-#' Creates a Replicate_Treatment sample column, pivots to wide format, and
-#' sorts columns alphabetically for consistent ordering across species.
-#'
-#' @param data    Long-format data frame: Protein_id, Replicate, Treatment, <protQ>.
-#' @param protQ   Name of the quantification column (e.g. "RI", "iBAQ").
-#' @param tmp_dir Directory for temp output. Default tempdir().
-#' @return Path to the written wide-format TSV.
 transform_data <- function(data, protQ, tmp_dir = tempdir()) {
     message("Transforming ", protQ, " data...")
 
@@ -77,47 +48,22 @@ transform_data <- function(data, protQ, tmp_dir = tempdir()) {
     temp_file
 }
 
-
-#' Normalize protein data using NormalyzerDE
-#'
-#' Runs all normalization methods, evaluates them, and writes normalized
-#' datasets and diagnostic plots (PDF + PNG) to output_path.
-#'
-#' @param data_path   Path to wide-format TSV (from transform_data).
-#' @param design_path Path to design TSV (from create_design_for_matrix).
-#' @param protQ       Quantification label used in output filenames.
-#' @param output_path Output directory (created if absent).
-#' @return NULL invisibly.
-normalize_data <- function(data_path, design_path, protQ, output_path) {
-    message("Normalizing ", protQ, " data...")
+normalize_data <- function(data_path, design_path, job_name, output_path) {
+    message("Normalizing ", job_name, " data...")
     dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
 
     normalyzer(
-        jobName = paste0(protQ),
+        jobName = job_name,
         dataPath = data_path,
         designPath = design_path,
         outputDir = output_path,
         writeReportAsPngs = TRUE,
-        zeroToNA = TRUE,
+        zeroToNA = TRUE
     )
 
     invisible(NULL)
 }
 
-
-# ============================================================================
-# VISUALIZATION
-# ============================================================================
-
-#' Compute PCA on a normalized protein matrix
-#'
-#' Strips non-numeric columns, filters complete cases, and runs PCA on the
-#' transposed matrix (samples as observations). Returns coordinates and plot.
-#'
-#' @param norm_matrix  Wide-format data frame (Protein_id + sample columns).
-#' @param design_table Path to design TSV with columns sample and group.
-#' @param method_name  Label used in the plot title.
-#' @return Named list: df (PCA coordinates tibble), plot (ggplot2 object).
 plot_pca <- function(norm_matrix, design_table, method_name) {
     mat <- norm_matrix %>%
         select(-any_of(c("CV", "anovaP"))) %>%
@@ -158,14 +104,6 @@ plot_pca <- function(norm_matrix, design_table, method_name) {
     list(df = pca_df, plot = pca_plot)
 }
 
-
-#' Save PCA plot and coordinate table for a normalized dataset
-#'
-#' @param norm_path   Path to normalized TSV.
-#' @param design_path Path to design TSV.
-#' @param output_path Directory for saved outputs.
-#' @param method_name Label used in filenames and plot title.
-#' @return NULL invisibly.
 process_plot_pca <- function(norm_path, design_path, output_path, method_name) {
     norm_matrix <- read.table(norm_path, sep = "\t", header = TRUE, check.names = FALSE)
     pca_res <- plot_pca(norm_matrix, design_path, method_name)
@@ -181,85 +119,198 @@ process_plot_pca <- function(norm_path, design_path, output_path, method_name) {
     invisible(NULL)
 }
 
-
-# ============================================================================
-# MAIN ORCHESTRATION
-# ============================================================================
-
-#' Run the full protein normalization and PCA pipeline
+#' Plot PCA Comparison Grid for All Normalization Methods
 #'
-#' For each species in the RI dataset:
-#'   1. Transforms RI, iBAQ, iBAQ_MC data to wide format.
-#'   2. Creates matched NormalyzerDE design files per quantification type.
-#'   3. Normalizes with all methods via NormalyzerDE.
-#'   4. Generates PCA plots per normalization method.
+#' @description
+#' Generates a grid of PCA plots — one panel per normalization method,
+#' each showing all species side by side as facets. Layout is 2 columns
+#' with ceiling(n_methods / 2) rows, matching the reference figure style.
 #'
-#' @param RI_PATH      Path to RI data TSV (long format).
-#' @param IBAQ_PATH    Path to iBAQ data TSV (long format).
-#' @param IBAQ_MC_PATH Path to iBAQ_MC data TSV (long format).
-#' @param output_path  Root output directory.
+#' @param protQ_data  Tibble. Long-format data with Species, Replicate,
+#'   Treatment, Protein_id, and quantification column.
+#' @param protQ       Chr. Name of the quantification column.
+#' @param norm_dir    Chr. Root NormalyzerDE output directory (from
+#'   run_normalization_comparison).
+#' @param output_path Chr. Directory for saving the combined figure.
 #' @return NULL invisibly.
-main_analysis <- function(RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
-    # ---- Load data -----------------------------------------------------------
-    read_data <- function(path) {
-        read_tsv(path, col_names = TRUE, show_col_types = FALSE, skip_empty_rows = TRUE)
-    }
+plot_pca_comparison_grid <- function(protQ_data, protQ, norm_dir, output_path) {
+    species_list <- unique(protQ_data$Species)
 
-    RI_data <- read_data(RI_PATH)
-    iBAQ_data <- read_data(IBAQ_PATH)
-    iBAQ_mc_data <- read_data(IBAQ_MC_PATH)
+    # Build one PCA tibble per method combining all species
+    pca_all <- map_dfr(NORM_METHODS, function(norm_method) {
+        map_dfr(species_list, function(species) {
+            norm_file <- file.path(
+                norm_dir, species, protQ,
+                paste0(norm_method, "-normalized.txt")
+            )
+            design_file <- file.path(
+                norm_dir, species,
+                paste0("design_", protQ, ".tsv")
+            )
 
-    species_list <- unique(RI_data$Species)
+            if (!file.exists(norm_file)) {
+                warning("Missing: ", norm_file)
+                return(NULL)
+            }
+
+            norm_matrix <- read.table(norm_file,
+                sep = "\t",
+                header = TRUE, check.names = FALSE
+            )
+
+            mat <- norm_matrix %>%
+                select(-any_of(c("CV", "anovaP"))) %>%
+                column_to_rownames("Protein_id") %>%
+                select(where(is.numeric)) %>%
+                as.matrix()
+            mat <- mat[complete.cases(mat), ]
+
+            pca <- prcomp(t(mat), scale. = TRUE, center = TRUE)
+            var_exp <- round(summary(pca)$importance[2, 1:2] * 100, 1)
+
+            design_df <- read.table(design_file, header = TRUE, sep = "\t") %>%
+                as_tibble() %>%
+                mutate(
+                    Treatment = group,
+                    Replicate = str_remove(sample, "_[a-zA-Z]+$")
+                )
+
+            as.data.frame(pca$x[, 1:2]) %>%
+                rownames_to_column("sample") %>%
+                left_join(design_df, by = "sample") %>%
+                mutate(
+                    Species     = species,
+                    method      = norm_method,
+                    var_exp_PC1 = var_exp[1],
+                    var_exp_PC2 = var_exp[2]
+                )
+        })
+    })
+
+    # Build one plot per method
+    method_plots <- map(NORM_METHODS, function(norm_method) {
+        df <- pca_all %>% filter(method == norm_method)
+
+        # Per-species variance explained labels (take first row per species)
+        axis_labels <- df %>%
+            distinct(Species, var_exp_PC1, var_exp_PC2) %>%
+            mutate(
+                x_lab = paste0("PC1 (", var_exp_PC1, "%)"),
+                y_lab = paste0("PC2 (", var_exp_PC2, "%)")
+            )
+
+        # Use first species x/y labels for shared axes
+        x_lab <- axis_labels$x_lab[1]
+        y_lab <- axis_labels$y_lab[1]
+
+        # Species facet labels using PLOT_SPECIES_NAMES
+        species_labels <- setNames(
+            sapply(unique(df$Species), function(s) {
+                display <- PLOT_SPECIES_NAMES[s]
+                ifelse(is.na(display), gsub("_", " ", s), display)
+            }),
+            unique(df$Species)
+        )
+
+        ggplot(df, aes(x = PC1, y = PC2, color = Treatment, shape = factor(Replicate))) +
+            geom_point(size = 2.5, alpha = 0.9) +
+            facet_wrap(~Species,
+                nrow = 1, scales = "free",
+                labeller = as_labeller(species_labels)
+            ) +
+            labs(
+                title  = norm_method,
+                x      = x_lab,
+                y      = y_lab,
+                color  = "Treatment",
+                shape  = "Replicate"
+            ) +
+            theme_bw(base_size = 10) +
+            theme(
+                plot.title       = element_text(face = "bold", hjust = 0),
+                strip.background = element_rect(fill = "#8FBC8F"),
+                strip.text       = element_text(face = "italic", size = 9),
+                panel.grid.minor = element_blank(),
+                legend.position  = "right"
+            )
+    })
+
+    # Arrange in 2-column grid with method labels A, B, C...
+    combined <- wrap_plots(method_plots, ncol = 2) +
+        plot_layout(guides = "collect") +
+        plot_annotation(tag_levels = "A") &
+        theme(legend.position = "right")
+
+    out_file <- file.path(output_path, paste0(protQ, "_normalization_PCA_comparison"))
+    save_plot(combined, out_file,
+        width = 14,
+        height = 5 * ceiling(length(NORM_METHODS) / 2),
+        out_format = FIGURE_FORMAT
+    )
+    message("PCA comparison grid saved: ", out_file, MSG_FIG_FORMAT)
+
+    invisible(NULL)
+}
+# ============================================================================
+# MAIN
+# ============================================================================
+
+#' Run normalization method comparison across all species and quantification types
+#'
+#' @param protQ_data   Tibble. Long-format data with Species, Replicate,
+#'   Treatment, Protein_id, and quantification column.
+#' @param protQ        Chr. Name of the quantification column.
+#' @param output_path  Chr. Root output directory.
+#' @return NULL invisibly.
+run_normalization_comparison <- function(protQ_data, protQ, output_path) {
     tmp_dir <- tempdir(check = FALSE)
-    output_dir <- file.path(output_path, "NormTest")
-    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+    # output_dir <- file.path(output_path, "Normalization")
+    # dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-    # ---- Per-species loop ----------------------------------------------------
+    species_list <- unique(protQ_data$Species)
+
     for (species in species_list) {
-        message("\n========== Processing species: ", species, " ==========")
+        message("Normalizing ", species, " data ...")
 
-        sp_dir <- file.path(output_dir, species)
+        sp_data <- protQ_data %>% filter(Species == species)
 
-        # -- Transform to wide format --------------------------------------------
-        data_paths <- list(
-            Intensity = RI_data %>% filter(Species == species) %>% transform_data("Intensity", tmp_dir),
-            RI = RI_data %>% filter(Species == species) %>% transform_data("RI", tmp_dir),
-            iBAQ = iBAQ_data %>% filter(Species == species) %>% transform_data("iBAQ", tmp_dir),
-            iBAQ_MC = iBAQ_mc_data %>% filter(Species == species) %>% transform_data("iBAQ", tmp_dir)
+        data_path <- transform_data(sp_data, protQ, tmp_dir)
+        design_path <- create_design_for_matrix(data_path, tmp_dir)
+
+        sp_dir <- file.path(output_path, species)
+        dir.create(sp_dir, showWarnings = FALSE)
+
+        normalyzer(
+            jobName = "Normalization",
+            dataPath = data_path,
+            designPath = design_path,
+            outputDir = sp_dir,
+            writeReportAsPngs = TRUE,
+            zeroToNA = TRUE
         )
 
-        # -- Create matched design files -----------------------------------------
-        design_paths <- map(data_paths, ~ create_design_for_matrix(.x, tmp_dir))
+        pca_dir <- file.path(sp_dir, "Normalization", "PCA")
+        dir.create(pca_dir, showWarnings = FALSE)
 
-        # -- Normalize -----------------------------------------------------------
-        iwalk(data_paths, ~ normalize_data(.x, design_paths[[.y]], .y, sp_dir))
-
-
-        # -- PCA per normalization method ----------------------------------------
-        dirs <- list(
-            Intensity   = file.path(sp_dir, "Intensity"),
-            RI          = file.path(sp_dir, "RI"),
-            iBAQ        = file.path(sp_dir, "iBAQ"),
-            iBAQ_MC     = file.path(sp_dir, "iBAQ_MC")
-        )
-        walk(dirs, ~ dir.create(file.path(.x, "PCA"), showWarnings = FALSE))
         for (norm_method in NORM_METHODS) {
             message("  Generating PCA for: ", norm_method)
 
-            iwalk(data_paths, function(path, quant_type) {
-                norm_file <- file.path(dirs[[quant_type]], paste0(norm_method, "-normalized.txt"))
-                if (!file.exists(norm_file)) {
-                    warning("Normalized file not found for ", quant_type, " with method ", norm_method, ": ", norm_file)
-                    return(invisible(NULL))
-                }
+            norm_file <- file.path(
+                sp_dir,
+                "Normalization",
+                paste0(norm_method, "-normalized.txt")
+            )
+            if (!file.exists(norm_file)) {
+                warning("Normalized file not found for method ", norm_method, ": ", norm_file)
+                next
+            }
 
-                process_plot_pca(
-                    norm_path   = norm_file,
-                    design_path = design_paths[[quant_type]],
-                    output_path = file.path(dirs[[quant_type]], "PCA"),
-                    method_name = paste0(quant_type, "_", norm_method)
-                )
-            })
+            process_plot_pca(
+                norm_path   = norm_file,
+                design_path = design_path,
+                output_path = pca_dir,
+                method_name = paste0(protQ, "_", norm_method)
+            )
         }
 
         message("Species ", species, " complete. Outputs saved to: ", sp_dir)
@@ -268,22 +319,79 @@ main_analysis <- function(RI_PATH, IBAQ_PATH, IBAQ_MC_PATH, output_path) {
     invisible(NULL)
 }
 
-
 # ============================================================================
-# ENTRY POINT
+# Protein Normalization - Single Method
 # ============================================================================
 
-#' Run analysis with default development paths
-#' @return NULL invisibly.
-test_analysis <- function() {
-    main_analysis(
-        RI_PATH      = "Analyses/RI_data.tsv",
-        IBAQ_PATH    = "Analyses/iBAQ_data.tsv",
-        IBAQ_MC_PATH = "Analyses/iBAQ_mc_data.tsv",
-        output_path  = "Analyses"
-    )
-}
+#' Normalize protein data using a single NormalyzerDE method
+#'
+#' @description
+#' Normalizes long-format proteomics data using one normalization method
+#' from NormalyzerDE. Returns a tidy long-format tibble with a new
+#' normalized intensity column.
+#'
+#' @param protQ_data  Tibble. Long-format data with columns: Species,
+#'   Replicate, Treatment, Protein_id, and the quantification column.
+#' @param protQ       Chr. Name of the quantification column to normalize.
+#' @param method      Chr. Normalization method. One of: "Log2", "VSN",
+#'   "CycLoess", "Quantile", "Median", "Mean", "GI", "RLR".
+#' @param output_path Chr. Optional directory to save normalized TSV.
+#'
+#' @return Tibble in long format with additional column
+#'   `<method>_<protQ>` containing normalized values.
+run_normalization <- function(protQ_data, protQ, method = "VSN", output_path = NULL) {
+    message("Running ", method, " normalization for ", protQ, "...\n")
 
-if (interactive()) {
-    test_analysis()
+    tmp_dir <- tempdir(check = FALSE)
+
+    # Normalize per species then recombine
+    normalized_data <- map_dfr(unique(protQ_data$Species), function(species) {
+        message("  Processing species: ", species)
+
+        sp_data <- protQ_data %>% filter(Species == species)
+        data_path <- transform_data(sp_data, protQ, tmp_dir)
+        design_path <- create_design_for_matrix(data_path, tmp_dir)
+
+        job_name <- paste0("norm_", species)
+        normalyzer(
+            jobName = job_name,
+            dataPath = data_path,
+            designPath = design_path,
+            outputDir = tmp_dir,
+            skipAnalysis = TRUE,
+            zeroToNA = TRUE,
+            quiet = TRUE
+        )
+        norm_file <- file.path(tmp_dir, job_name, paste0(method, "-normalized.txt"))
+        if (!file.exists(norm_file)) {
+            stop(
+                "Normalized file not found: ", norm_file,
+                "\nCheck that method '", method, "' is valid."
+            )
+        }
+
+        out_col <- paste0(method, "_", protQ)
+
+        read.table(norm_file, sep = "\t", header = TRUE, check.names = FALSE) %>%
+            select(-any_of(c("CV", "anovaP"))) %>%
+            pivot_longer(
+                cols      = -Protein_id,
+                names_to  = "sample",
+                values_to = out_col
+            ) %>%
+            mutate(
+                Species   = species,
+                Replicate = str_extract(sample, "^R\\d+"),
+                Treatment = str_remove(sample, "^R\\d+_")
+            ) %>%
+            select(-sample)
+    })
+
+    if (!is.null(output_path)) {
+        out_file <- file.path(output_path, paste0(method, "_", protQ, "_normalized.tsv"))
+        write.table(normalized_data, out_file, sep = "\t", row.names = FALSE, quote = FALSE)
+        message(method, " normalized data saved to: ", out_file)
+    }
+
+    normalized_data
 }
