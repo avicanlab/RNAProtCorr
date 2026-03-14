@@ -746,7 +746,6 @@ deg_data <- deg_raw %>%
             abs(log2FC) > DE_FC_THRESHOLD & !is.na(fdr)]),
         .groups = "drop"
     )
-print(deg_data)
 ```
 
 ```{r compute-DEP}
@@ -776,7 +775,6 @@ dep_data <- map_dfr(species_list, function(species) {
         fc_threshold   = DE_FC_THRESHOLD
     )
 })
-print(dep_data)
 ```
 
 ```{r de-comparison}
@@ -820,6 +818,89 @@ save_plot(
 )
 ```
 
+# Identification of genes whose mRNA-protein levels are discordantly regulated under stress conditions
+
+```{r discordant-data-generation}
+source("sources/discordant_analyses.R")
+dep_raw <- map_dfr(species_list, function(species) {
+    sp_data <- norm_data %>%
+        filter(
+            Species == species,
+            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+            Protein_id %in% common_ids,
+            is.finite(value)
+        )
+    prot_expr <- build_expression_matrix(sp_data)
+    extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
+})
+
+discordance_df <- build_discordance_clusters(deg_raw, dep_raw)
+
+# Save
+write.table(discordance_df,
+    file.path(OUTPUT_PATH, "discordance_clusters.tsv"),
+    sep = "\t", row.names = FALSE, quote = FALSE
+)
+
+# Summary with discordant and non-discordant counts
+all_proteins <- inner_join(
+    deg_raw %>% distinct(Species, Protein_id),
+    dep_raw %>% distinct(Species, Protein_id),
+    by = c("Species", "Protein_id")
+)
+
+discordant_proteins <- discordance_df %>%
+    distinct(Species, Protein_id, cluster)
+
+summary_table <- discordant_proteins %>%
+    count(Species, cluster) %>%
+    arrange(Species, cluster) %>%
+    bind_rows(
+        all_proteins %>%
+            anti_join(discordant_proteins, by = c("Species", "Protein_id")) %>%
+            count(Species) %>%
+            mutate(cluster = "Non-discordant")
+    ) %>%
+    arrange(Species, cluster) %>%
+    group_by(Species) %>%
+    mutate(
+        total    = sum(n),
+        pct      = round(100 * n / total, 1)
+    ) %>%
+    ungroup()
+
+write.table(summary_table, sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## fold changes of mRNA and protein levels for each the 10 stress conditions in comparison to control for the three species. 
+
+The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors. 
+
+```{r discordant-scatter}
+source("sources/discordant_analyses.R")
+# Per-species with free limits — saves individual plots
+invisible(plot_discordance_scatter(
+    discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
+    save_per_species = TRUE
+))
+
+# Combined with shared limits
+plots <- plot_discordance_scatter(
+    discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
+    xlim = c(-11, 16), ylim = c(-5, 5)
+)
+
+combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "top")
+
+print(combined)
+output_file <- file.path(OUTPUT_PATH, "discordance_scatter")
+save_plot(combined, output_file, width = 16, height = 5)
+
+message("Combined discordance scatter saved", MSG_FIG_FORMAT)
+```
+## 
 # Supplementary figures
 ```{r supp-config}
 SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
