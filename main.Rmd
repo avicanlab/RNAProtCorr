@@ -834,7 +834,10 @@ dep_raw <- map_dfr(species_list, function(species) {
     extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
 })
 
-discordance_df <- build_discordance_clusters(deg_raw, dep_raw)
+discordance_df <- build_discordance_clusters(
+    deg_raw, dep_raw,
+    direction_method = "strict" # dominant
+)
 
 # Save
 write.table(discordance_df,
@@ -898,9 +901,38 @@ print(combined)
 output_file <- file.path(OUTPUT_PATH, "discordance_scatter")
 save_plot(combined, output_file, width = 16, height = 5)
 
-message("Combined discordance scatter saved", MSG_FIG_FORMAT)
+message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
 ```
-## 
+## Profile
+
+```{r profile}
+source("sources/discordant_analyses.R")
+
+# Per-species
+species_list <- unique(discordance_df$Species)
+invisible(walk(species_list, function(species) {
+    p <- plot_discordance_profiles(discordance_df, OUTPUT_PATH,
+        species_filter = species
+    )
+    save_plot(
+        plot = p,
+        filepath = file.path(OUTPUT_PATH, species, "discordance_profiles"),
+        width = 14, height = 5
+    )
+    message("Discordance profiles saved for: ", species, MSG_FIG_FORMAT)
+}))
+
+# Combined all species
+combined <- plot_discordance_profiles(discordance_df, OUTPUT_PATH)
+output_file <- file.path(OUTPUT_PATH, "discordance_profiles")
+save_plot(
+    plot = combined,
+    filepath = output_file,
+    width = 20, height = 10
+)
+message("Combined discordance profiles saved: ", output_file, MSG_FIG_FORMAT)
+print(combined)
+```
 # Supplementary figures
 ```{r supp-config}
 SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")

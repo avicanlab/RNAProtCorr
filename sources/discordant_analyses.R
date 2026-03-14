@@ -57,8 +57,11 @@ build_discordance_clusters <- function(
   deg_raw,
   dep_raw,
   fc_threshold = DE_FC_THRESHOLD,
-  pval_threshold = DEP_PVAL_THRESHOLD
+  pval_threshold = DEP_PVAL_THRESHOLD,
+  direction_method = c("strict", "dominant")
 ) {
+    direction_method <- match.arg(direction_method)
+
     # Tag RNA regulation direction per protein x treatment
     rna_df <- deg_raw %>%
         filter(!is.na(log2FC), !is.na(fdr)) %>%
@@ -82,36 +85,72 @@ build_discordance_clusters <- function(
         ) %>%
         dplyr::select(Species, Protein_id, Treatment, prot_log2FC = logFC, prot_sig)
 
-    # Join RNA and protein per protein x treatment
     joined <- inner_join(rna_df, prot_df, by = c("Species", "Protein_id", "Treatment"))
 
-    # Summarise regulation pattern per protein across all treatments
-    protein_pattern <- joined %>%
-        group_by(Species, Protein_id) %>%
-        summarise(
-            rna_ever_down = any(rna_sig == "down"),
-            rna_ever_up = any(rna_sig == "up"),
-            rna_ever_changed = any(rna_sig != "unchanged"),
-            prot_ever_down = any(prot_sig == "down"),
-            prot_ever_up = any(prot_sig == "up"),
-            prot_ever_changed = any(prot_sig != "unchanged"),
-            .groups = "drop"
-        ) %>%
-        mutate(
-            cluster = case_when(
-                rna_ever_down & !prot_ever_changed ~ "Cluster 1",
-                rna_ever_down & prot_ever_up ~ "Cluster 2",
-                !rna_ever_changed & prot_ever_down ~ "Cluster 3",
-                !rna_ever_changed & prot_ever_up ~ "Cluster 4",
-                rna_ever_up & prot_ever_down ~ "Cluster 5",
-                rna_ever_up & !prot_ever_changed ~ "Cluster 6",
-                TRUE ~ NA_character_
+    protein_pattern <- if (direction_method == "strict") {
+        # Strict: protein must be regulated in only one direction across all treatments
+        joined %>%
+            group_by(Species, Protein_id) %>%
+            summarise(
+                rna_ever_down = any(rna_sig == "down"),
+                rna_ever_up = any(rna_sig == "up"),
+                rna_ever_changed = any(rna_sig != "unchanged"),
+                prot_ever_down = any(prot_sig == "down"),
+                prot_ever_up = any(prot_sig == "up"),
+                prot_ever_changed = any(prot_sig != "unchanged"),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                cluster = case_when(
+                    rna_ever_down & !rna_ever_up & !prot_ever_changed ~ "Cluster 1",
+                    rna_ever_down & !rna_ever_up & prot_ever_up ~ "Cluster 2",
+                    !rna_ever_changed & prot_ever_down ~ "Cluster 3",
+                    !rna_ever_changed & prot_ever_up ~ "Cluster 4",
+                    rna_ever_up & !rna_ever_down & prot_ever_down ~ "Cluster 5",
+                    rna_ever_up & !rna_ever_down & !prot_ever_changed ~ "Cluster 6",
+                    TRUE ~ NA_character_
+                )
             )
-        ) %>%
+    } else {
+        # Dominant: use the direction that appears most often across treatments
+        joined %>%
+            group_by(Species, Protein_id) %>%
+            summarise(
+                n_rna_down = sum(rna_sig == "down"),
+                n_rna_up = sum(rna_sig == "up"),
+                n_prot_down = sum(prot_sig == "down"),
+                n_prot_up = sum(prot_sig == "up"),
+                rna_ever_changed = any(rna_sig != "unchanged"),
+                prot_ever_changed = any(prot_sig != "unchanged"),
+                .groups = "drop"
+            ) %>%
+            mutate(
+                rna_dominant = case_when(
+                    n_rna_down > n_rna_up ~ "down",
+                    n_rna_up > n_rna_down ~ "up",
+                    TRUE ~ "unchanged"
+                ),
+                prot_dominant = case_when(
+                    n_prot_down > n_prot_up ~ "down",
+                    n_prot_up > n_prot_down ~ "up",
+                    TRUE ~ "unchanged"
+                ),
+                cluster = case_when(
+                    rna_dominant == "down" & !prot_ever_changed ~ "Cluster 1",
+                    rna_dominant == "down" & prot_dominant == "up" ~ "Cluster 2",
+                    !rna_ever_changed & prot_dominant == "down" ~ "Cluster 3",
+                    !rna_ever_changed & prot_dominant == "up" ~ "Cluster 4",
+                    rna_dominant == "up" & prot_dominant == "down" ~ "Cluster 5",
+                    rna_dominant == "up" & !prot_ever_changed ~ "Cluster 6",
+                    TRUE ~ NA_character_
+                )
+            )
+    }
+
+    protein_pattern <- protein_pattern %>%
         filter(!is.na(cluster)) %>%
         dplyr::select(Species, Protein_id, cluster)
 
-    # Join cluster assignment back to per-treatment logFC table
     joined %>%
         inner_join(protein_pattern, by = c("Species", "Protein_id")) %>%
         dplyr::select(
@@ -285,4 +324,117 @@ plot_discordance_scatter <- function(
     })
 
     plots
+}
+
+plot_discordance_profiles <- function(discordance_df, output_path,
+                                      species_filter = NULL) {
+    treatment_order <- sort(unique(discordance_df$Treatment[discordance_df$Treatment != "Ctrl"]))
+
+    df <- discordance_df %>%
+        filter(Treatment != "Ctrl") %>%
+        {
+            if (!is.null(species_filter)) filter(., Species == species_filter) else .
+        } %>%
+        mutate(
+            Treatment = factor(Treatment, levels = treatment_order),
+            cluster   = factor(cluster, levels = names(CLUSTER_COLOURS))
+        ) %>%
+        pivot_longer(
+            cols      = c(rna_log2FC, prot_log2FC),
+            names_to  = "measure",
+            values_to = "log2FC"
+        ) %>%
+        mutate(
+            measure = factor(
+                ifelse(measure == "rna_log2FC", "mRNA", "Protein"),
+                levels = c("mRNA", "Protein")
+            )
+        )
+
+    count_df <- discordance_df %>%
+        filter(Treatment != "Ctrl") %>%
+        {
+            if (!is.null(species_filter)) filter(., Species == species_filter) else .
+        } %>%
+        distinct(Species, Protein_id, cluster) %>%
+        count(Species, cluster, name = "n") %>%
+        mutate(cluster = factor(cluster, levels = names(CLUSTER_COLOURS)))
+
+    species_levels <- sort(unique(df$Species))
+    species_labeller <- as_labeller(setNames(
+        sapply(species_levels, function(s) {
+            display <- PLOT_SPECIES_NAMES[s]
+            ifelse(is.na(display), gsub("_", " ", s), display)
+        }),
+        species_levels
+    ))
+
+    facet <- if (is.null(species_filter)) {
+        facet_grid(
+            Species ~ cluster,
+            scales = "free_y",
+            labeller = labeller(
+                Species = species_labeller,
+                cluster = as_labeller(CLUSTER_LABELS)
+            )
+        )
+    } else {
+        facet_wrap(
+            ~cluster,
+            nrow     = 1,
+            scales   = "free_y",
+            labeller = as_labeller(CLUSTER_LABELS)
+        )
+    }
+
+    p <- ggplot(
+        df,
+        aes(
+            x = Treatment, y = log2FC,
+            group = interaction(Protein_id, measure),
+            colour = measure
+        )
+    ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40", linewidth = 0.4) +
+        geom_line(alpha = 0.3, linewidth = 0.3) +
+        geom_text(
+            data = count_df,
+            aes(x = length(treatment_order), y = Inf, label = paste0("n=", n)),
+            hjust = 1.1, vjust = 1.5,
+            size = 2.8, colour = "grey30", fontface = "italic",
+            inherit.aes = FALSE
+        ) +
+        facet +
+        scale_colour_manual(
+            values = c("mRNA" = "#E8C84A", "Protein" = "#7BBFDF"),
+            name   = NULL
+        ) +
+        scale_x_discrete(guide = guide_axis(angle = 45)) +
+        labs(x = NULL, y = "Log2 FC") +
+        theme_bw(base_size = 10) +
+        theme(
+            strip.text.x       = element_text(size = 9, face = "bold", colour = "white"),
+            strip.text.y       = element_text(size = 9, face = "italic", angle = -90),
+            strip.background.x = element_rect(fill = "grey40"),
+            strip.background.y = element_rect(fill = "white"),
+            panel.grid.minor   = element_blank(),
+            panel.grid.major.x = element_blank(),
+            legend.position    = "right",
+            legend.text        = element_text(size = 9),
+            legend.key.size    = unit(0.4, "cm"),
+            axis.text.x        = element_text(size = 7),
+            axis.text.y        = element_text(size = 7),
+            axis.title.y       = element_text(size = 9)
+        )
+
+    # Colour cluster strip backgrounds
+    g <- ggplot_gtable(ggplot_build(p))
+    strip_idx <- which(grepl("strip-t", g$layout$name))
+    cluster_names <- names(CLUSTER_COLOURS)
+    for (i in seq_along(strip_idx)) {
+        col <- CLUSTER_COLOURS[cluster_names[((i - 1) %% length(cluster_names)) + 1]]
+        g$grobs[[strip_idx[i]]]$grobs[[1]]$children[[1]]$gp$fill <- col
+    }
+
+    wrap_elements(g)
 }
