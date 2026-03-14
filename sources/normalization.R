@@ -48,22 +48,6 @@ transform_data <- function(data, protQ, tmp_dir = tempdir()) {
     temp_file
 }
 
-normalize_data <- function(data_path, design_path, job_name, output_path) {
-    message("Normalizing ", job_name, " data...")
-    dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
-
-    normalyzer(
-        jobName = job_name,
-        dataPath = data_path,
-        designPath = design_path,
-        outputDir = output_path,
-        writeReportAsPngs = TRUE,
-        zeroToNA = TRUE
-    )
-
-    invisible(NULL)
-}
-
 plot_pca <- function(norm_matrix, design_table, method_name) {
     mat <- norm_matrix %>%
         select(-any_of(c("CV", "anovaP"))) %>%
@@ -369,14 +353,12 @@ run_normalization <- function(protQ_data, protQ, method = "VSN", output_path = N
             )
         }
 
-        out_col <- paste0(method, "_", protQ)
-
         read.table(norm_file, sep = "\t", header = TRUE, check.names = FALSE) %>%
             select(-any_of(c("CV", "anovaP"))) %>%
             pivot_longer(
                 cols      = -Protein_id,
                 names_to  = "sample",
-                values_to = out_col
+                values_to = "value"
             ) %>%
             mutate(
                 Species   = species,

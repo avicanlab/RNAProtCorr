@@ -33,6 +33,9 @@ keep_cols <- c(
     col_total_intensity
 )
 
+STRESS_TREATMENTS <- c("As", "Bs", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm")
+STRESS_TREATMENTS_RNA <- c(STRESS_TREATMENTS, "Mig")
+
 ## Read transcriptomic data ---------------------------------------------------
 
 #' Read TPM Data from Excel
@@ -52,7 +55,7 @@ read_tpm <- function(dataset_path, sp_abbv) {
     # Build regex pattern: ABBV_Treatment_Replicate (GE) - TPM
     pattern <- paste0(
         "^", sp_abbv, "_(",
-        paste(treatment_list, collapse = "|"),
+        paste(TREATMENTS_LIST_RNA, collapse = "|"),
         ")_(\\d+) \\(GE\\) - TPM$"
     )
 
@@ -62,8 +65,8 @@ read_tpm <- function(dataset_path, sp_abbv) {
             matches(
                 paste0(
                     "(",
-                    paste(treatment_list, collapse = "|"),
-                    ").*TPM|TPM.*(", paste(treatment_list, collapse = "|"), ")"
+                    paste(TREATMENTS_LIST_RNA, collapse = "|"),
+                    ").*TPM|TPM.*(", paste(TREATMENTS_LIST_RNA, collapse = "|"), ")"
                 )
             )
         ) %>%
@@ -336,4 +339,50 @@ read_essential_vec <- function(filepath) {
         as.list() %>%
         unlist() %>%
         as.vector()
+}
+
+
+#' Read DEG Results for one species Read Counts Excel File
+#'
+#' @description
+#' Loads read counts Excel file for one species and returns a single
+#' long-format tibble.
+#'
+#' @param counts_path Chr. Directory containing read counts Excel files.
+#'
+#' @return Tibble: Protein_id, Treatment, log2FC, fdr, max_mean
+read_deg_data <- function(filepath) {
+    col_lfc <- function(trt) paste0(trt, " vs. Ctrl - Log fold change")
+    col_fdr <- function(trt) paste0(trt, " vs. Ctrl - FDR p-value")
+    col_mean <- function(trt) paste0(trt, " vs. Ctrl - Max group means")
+
+    raw <- read_excel(filepath, col_names = TRUE) %>%
+        mutate(
+            Protein_id = if_else(
+                is.na(New_locus_tag) | New_locus_tag == "N/A",
+                Old_locus_tag,
+                New_locus_tag
+            )
+        ) %>%
+        filter(!is.na(Protein_id))
+
+    treatments_present <- STRESS_TREATMENTS_RNA[
+        map_lgl(STRESS_TREATMENTS_RNA, ~ col_lfc(.x) %in% colnames(raw))
+    ]
+
+    map_dfr(treatments_present, function(trt) {
+        raw %>%
+            dplyr::select(
+                Protein_id,
+                log2FC   = all_of(col_lfc(trt)),
+                fdr      = all_of(col_fdr(trt)),
+                max_mean = all_of(col_mean(trt))
+            ) %>%
+            mutate(
+                Treatment = ifelse(trt == "Mig", "Hyp", trt),
+                log2FC    = as.numeric(log2FC),
+                fdr       = as.numeric(fdr),
+                max_mean  = as.numeric(max_mean)
+            )
+    })
 }

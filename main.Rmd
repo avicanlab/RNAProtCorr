@@ -50,10 +50,13 @@ SPECIES_ABBV_MAP <- c(
 )
 
 #' Treatment List
+
+STRESS_TREATMENTS <- c("As", "Bs", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm")
+STRESS_TREATMENTS_RNA <- c(STRESS_TREATMENTS, "Mig")
+STRESS_TREATMENTS_PROT <- c(STRESS_TREATMENTS, "Hyp")
+
 #' Control and stress treatment conditions
-treatment_list <- c(
-    "Ctrl", "As", "Bs", "Mig", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm"
-)
+TREATMENTS_LIST_RNA <- c("Ctrl", STRESS_TREATMENTS_RNA)
 
 PLOT_SPECIES_NAMES <- c(
     "Salmonella_enterica"         = "S. enterica Typhimurium",
@@ -103,24 +106,24 @@ PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyse
 
 # --- Directories ---------------------------------------------------------------
 dirs <- list(
-    DATA            = path("DATA"),
-    RNA_DATA        = path("DATA", "Read_counts"),
-    PROTEIN_DATA    = path("DATA", "Proteome"),
-    PROTEIN_FASTA   = path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
-    ESSENTIAL_GENES = path("DATA", "Essential genes")
+    DATA            = file.path("DATA"),
+    RNA_DATA        = file.path("DATA", "Read_counts"),
+    PROTEIN_DATA    = file.path("DATA", "Proteome"),
+    PROTEIN_FASTA   = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
+    ESSENTIAL_GENES = file.path("DATA", "Essential genes")
 )
 
 walk(dirs, check_dir, return_error = TRUE)
 
-OUTPUT_PATH <- path("Analyses_intensity")
+OUTPUT_PATH <- file.path("Analyses_intensity")
 FIGURE_FORMAT <- c("png", "svg", "pdf") # "eps", "ps", "tex" (pictex), "jpeg", "tiff", "png", "bmp" or "wmf" (windows only)
 MSG_FIG_FORMAT <- paste0(".", paste(FIGURE_FORMAT, collapse = "/."))
-dir_create(OUTPUT_PATH)
-for (species in SPECIES) dir_create(path(OUTPUT_PATH, species))
+dir.create(OUTPUT_PATH)
+for (species in SPECIES) dir.create(file.path(OUTPUT_PATH, species))
 
 # --- Required files ------------------------------------------------------------
 files <- list(
-    SAMPLE_MAPPING = path(dirs$PROTEIN_DATA, "sample_mapping.xlsx")
+    SAMPLE_MAPPING = file.path(dirs$PROTEIN_DATA, "sample_mapping.xlsx")
 )
 
 walk(files, ~ if (!file_exists(.x)) stop(.x, " not found"))
@@ -668,7 +671,7 @@ treatment_to_exposure_time <- c(
 
 print(corr_rna_prot)
 exposure_corr_df <- corr_rna_prot %>%
-    filter_out(Treatment == "Ctrl") %>%
+    filter(Treatment != "Ctrl") %>%
     distinct(Species, Treatment, R) %>%
     mutate(
         exposure_time = treatment_to_exposure_time[Treatment],
@@ -707,7 +710,7 @@ source("sources/normalization.R")
 NORMALIZATION_METHOD <- "VSN" # Go to supplementary to run normalization comparison
 
 # Single method normalization — returns tidy tibble
-vsn_data <- run_normalization(
+norm_data <- run_normalization(
     protQ_data,
     protQ = PROTEIN_QUANTIFICATION_METHOD,
     method = NORMALIZATION_METHOD,
@@ -715,8 +718,107 @@ vsn_data <- run_normalization(
 )
 ```
 
-## 
+## Stress responses differentially affect mRNA-protein correlation
 
+```{r read-DEG}
+DEG_PVAL_THRESHOLD <- 0.05
+DE_FC_THRESHOLD <- 0.5
+source("sources/read_data.R")
+deg_raw <- map_dfr(rna_files, function(filepath) {
+    species <- tools::file_path_sans_ext(
+        str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+")
+    )
+    message("  Loading DEG data for: ", species)
+    deg_data_sp <- read_deg_data(filepath) %>%
+        mutate(Species = species) %>%
+        dplyr::select(Species, Protein_id, Treatment, log2FC, fdr, max_mean)
+}) %>%
+    filter(!is.na(log2FC), !is.na(fdr)) %>%
+    filter(Protein_id %in% common_ids)
+
+deg_data <- deg_raw %>%
+    group_by(Species, Treatment) %>%
+    summarise(
+        n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
+        n_total = n(),
+        pct_de = 100 * n_de / n_total,
+        de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
+            abs(log2FC) > DE_FC_THRESHOLD & !is.na(fdr)]),
+        .groups = "drop"
+    )
+print(deg_data)
+```
+
+```{r compute-DEP}
+source("sources/differential_expression.R")
+DEP_PVAL_THRESHOLD <- 0.05
+
+species_list <- unique(norm_data$Species)
+
+dep_data <- map_dfr(species_list, function(species) {
+    message("  Running limma DEP for: ", species)
+
+    sp_data <- norm_data %>%
+        filter(
+            Species == species,
+            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+            Protein_id %in% common_ids, # add this
+            is.finite(value)
+        )
+
+    prot_expr <- build_expression_matrix(sp_data)
+
+    run_limma_dep(
+        mat            = prot_expr$mat,
+        metadata       = prot_expr$metadata,
+        species        = species,
+        pval_threshold = DEP_PVAL_THRESHOLD,
+        fc_threshold   = DE_FC_THRESHOLD
+    )
+})
+print(dep_data)
+```
+
+```{r DE-comparison}
+source("sources/differential_expression.R")
+plots <- plot_de_barplot_all(deg_data, dep_data, OUTPUT_PATH)
+combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect", axes = "collect_y") &
+    theme(legend.position = "top")
+
+print(combined)
+
+output_file <- file.path(OUTPUT_PATH, "DEG_DEP_barplot")
+save_plot(
+    plot = combined,
+    filepath = output_file,
+    width = 16, height = 5
+)
+message("  Combined plot saved: ", output_file, MSG_FIG_FORMAT)
+```
+
+
+```{r de-correlation}
+source("sources/differential_expression.R")
+plots <- plot_de_vs_correlation_all(
+    deg_data,
+    dep_data,
+    corr_rna_prot,
+    PROTEIN_QUANTIFICATION_METHOD,
+    OUTPUT_PATH
+)
+combined <- wrap_plots(plots, nrow = 2) +
+    plot_layout(guides = "collect", axes = "collect_x") &
+    theme(legend.position = "right")
+
+print(combined)
+output_file <- file.path(OUTPUT_PATH, "DE_vs_correlation")
+save_plot(
+    plot = combined,
+    filepath = output_file,
+    width = 16, height = 10
+)
+```
 # Supplementary figures
 
 ## Normalization
