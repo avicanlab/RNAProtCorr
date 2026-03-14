@@ -779,7 +779,7 @@ dep_data <- map_dfr(species_list, function(species) {
 print(dep_data)
 ```
 
-```{r DE-comparison}
+```{r de-comparison}
 source("sources/differential_expression.R")
 plots <- plot_de_barplot_all(deg_data, dep_data, OUTPUT_PATH)
 combined <- wrap_plots(plots, nrow = 1) +
@@ -819,7 +819,13 @@ save_plot(
     width = 16, height = 10
 )
 ```
+
 # Supplementary figures
+```{r supp-config}
+SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
+dir.create(SUPP_OUTPUT_PATH)
+for (species in SPECIES) dir.create(file.path(SUPP_OUTPUT_PATH, species))
+```
 
 ## Normalization
 ```{r normalization-comparison}
@@ -829,11 +835,88 @@ source("sources/normalization.R")
 run_normalization_comparison(
     protQ_data,
     protQ = PROTEIN_QUANTIFICATION_METHOD,
-    output_path = OUTPUT_PATH
+    output_path = SUPP_OUTPUT_PATH
 )
 plot_pca_comparison_grid(
     protQ_data  = protQ_data,
-    norm_dir    = file.path(OUTPUT_PATH, "NormTest"),
-    output_path = OUTPUT_PATH
+    norm_dir    = file.path(SUPP_OUTPUT_PATH),
+    output_path = SUPP_OUTPUT_PATH
+)
+```
+
+## Essential DE
+```{r de-essential-correlation}
+source("sources/differential_expression.R")
+
+# In read-DEG chunk, add after deg_raw is built
+deg_raw_essential <- deg_raw %>%
+    semi_join(essential_df, by = c("Species", "Protein_id"))
+
+deg_data_essential <- deg_raw_essential %>%
+    group_by(Species, Treatment) %>%
+    summarise(
+        n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
+        n_total = n(),
+        pct_de = 100 * n_de / n_total,
+        de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
+            abs(log2FC) > DE_FC_THRESHOLD & !is.na(fdr)]),
+        .groups = "drop"
+    )
+
+# In compute-DEP chunk, add Protein_id filter
+dep_data_essential <- map_dfr(species_list, function(species) {
+    sp_data <- norm_data %>%
+        filter(
+            Species == species,
+            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+            Protein_id %in% common_ids,
+            Protein_id %in% essential_df$Protein_id[essential_df$Species == species],
+            is.finite(value)
+        )
+
+    prot_expr <- build_expression_matrix(sp_data)
+
+    run_limma_dep(
+        mat            = prot_expr$mat,
+        metadata       = prot_expr$metadata,
+        species        = species,
+        pval_threshold = DEP_PVAL_THRESHOLD,
+        fc_threshold   = DE_FC_THRESHOLD
+    )
+})
+
+plots <- plot_de_barplot_all(deg_data_essential, dep_data_essential, SUPP_OUTPUT_PATH, prefix = "Essential")
+combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect", axes = "collect_y") &
+    theme(legend.position = "top")
+
+print(combined)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "Essential_DEG_DEP_barplot")
+save_plot(
+    plot = combined,
+    filepath = output_file,
+    width = 16, height = 5
+)
+message("  Combined plot saved: ", output_file, MSG_FIG_FORMAT)
+
+plots <- plot_de_vs_correlation_all(
+    deg_data_essential,
+    dep_data_essential,
+    corr_essential_rna_prot,
+    PROTEIN_QUANTIFICATION_METHOD,
+    SUPP_OUTPUT_PATH,
+    prefix = "essential"
+)
+combined <- wrap_plots(plots, nrow = 2) +
+    plot_layout(guides = "collect", axes = "collect_x") &
+    theme(legend.position = "right")
+
+print(combined)
+output_file <- file.path(SUPP_OUTPUT_PATH, "Essential_DE_vs_correlation")
+save_plot(
+    plot = combined,
+    filepath = output_file,
+    width = 16, height = 10
 )
 ```

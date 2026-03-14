@@ -118,7 +118,7 @@ run_limma_dep <- function(
 #' @param dep_df      Tibble. call_dep_all() output with Species column.
 #' @param output_path Chr. Output directory.
 #' @return NULL invisibly.
-plot_de_barplot_all <- function(deg_df, dep_df, output_path) {
+plot_de_barplot_all <- function(deg_df, dep_df, output_path, prefix = NULL) {
     plots <- bind_rows(
         deg_df %>% mutate(type = "DEGs"),
         dep_df %>% mutate(type = "DEPs")
@@ -170,7 +170,9 @@ plot_de_barplot_all <- function(deg_df, dep_df, output_path) {
 
     # Save per species
     walk2(plots, unique(deg_df$Species), function(p, species) {
-        output_file <- file.path(output_path, species, "DEG_DEP_barplot")
+        output_file <- file.path(
+            output_path, species, paste0(prefix, "_", "DEG_DEP_barplot")
+        )
         save_plot(
             plot = p,
             filepath = output_file,
@@ -191,7 +193,7 @@ plot_de_barplot_all <- function(deg_df, dep_df, output_path) {
 #' @param output_path Chr. Output directory.
 #' @return NULL invisibly.
 plot_de_vs_correlation_all <- function(
-  deg_df, dep_df, corr_df, protq_name, output_path
+  deg_df, dep_df, corr_df, protq_name, output_path, prefix = NULL
 ) {
     corr_summary <- corr_df %>% distinct(Species, Treatment, R)
 
@@ -269,15 +271,16 @@ plot_de_vs_correlation_all <- function(
                 legend.key.size  = unit(0.45, "cm")
             )
 
+        out_file <- file.path(
+            output_path,
+            paste(prefix, de_type, "vs_correlation", protq_name, sep = "_")
+        )
         save_plot(
             plot = p,
-            filepath = file.path(
-                output_path,
-                paste0(de_type, "_vs_correlation_", protq_name)
-            ),
+            filepath = out_file,
             width = 16, height = 5
         )
-        message("  Plot saved: ", de_type, "_vs_correlation_", protq_name, MSG_FIG_FORMAT)
+        message("  Plot saved: ", out_file, MSG_FIG_FORMAT)
         p
     }
 
