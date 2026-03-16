@@ -9,6 +9,7 @@
 # Requirements:
 #
 
+library(ggstar)
 
 CLUSTER_COLOURS <- c(
     "Cluster 1" = "#E8A838",
@@ -57,11 +58,8 @@ build_discordance_clusters <- function(
   deg_raw,
   dep_raw,
   fc_threshold = DE_FC_THRESHOLD,
-  pval_threshold = DEP_PVAL_THRESHOLD,
-  direction_method = c("strict", "dominant")
+  pval_threshold = DEP_PVAL_THRESHOLD
 ) {
-    direction_method <- match.arg(direction_method)
-
     # Tag RNA regulation direction per protein x treatment
     rna_df <- deg_raw %>%
         filter(!is.na(log2FC), !is.na(fdr)) %>%
@@ -87,65 +85,28 @@ build_discordance_clusters <- function(
 
     joined <- inner_join(rna_df, prot_df, by = c("Species", "Protein_id", "Treatment"))
 
-    protein_pattern <- if (direction_method == "strict") {
-        # Strict: protein must be regulated in only one direction across all treatments
-        joined %>%
-            group_by(Species, Protein_id) %>%
-            summarise(
-                rna_ever_down = any(rna_sig == "down"),
-                rna_ever_up = any(rna_sig == "up"),
-                rna_ever_changed = any(rna_sig != "unchanged"),
-                prot_ever_down = any(prot_sig == "down"),
-                prot_ever_up = any(prot_sig == "up"),
-                prot_ever_changed = any(prot_sig != "unchanged"),
-                .groups = "drop"
-            ) %>%
-            mutate(
-                cluster = case_when(
-                    rna_ever_down & !rna_ever_up & !prot_ever_changed ~ "Cluster 1",
-                    rna_ever_down & !rna_ever_up & prot_ever_up ~ "Cluster 2",
-                    !rna_ever_changed & prot_ever_down ~ "Cluster 3",
-                    !rna_ever_changed & prot_ever_up ~ "Cluster 4",
-                    rna_ever_up & !rna_ever_down & prot_ever_down ~ "Cluster 5",
-                    rna_ever_up & !rna_ever_down & !prot_ever_changed ~ "Cluster 6",
-                    TRUE ~ NA_character_
-                )
+    protein_pattern <- joined %>%
+        group_by(Species, Protein_id, Treatment) %>%
+        summarise(
+            rna_ever_down = any(rna_sig == "down"),
+            rna_ever_up = any(rna_sig == "up"),
+            rna_ever_changed = any(rna_sig != "unchanged"),
+            prot_ever_down = any(prot_sig == "down"),
+            prot_ever_up = any(prot_sig == "up"),
+            prot_ever_changed = any(prot_sig != "unchanged"),
+            .groups = "drop"
+        ) %>%
+        mutate(
+            cluster = case_when(
+                rna_ever_down & !rna_ever_up & !prot_ever_changed ~ "Cluster 1",
+                rna_ever_down & !rna_ever_up & prot_ever_up ~ "Cluster 2",
+                !rna_ever_changed & prot_ever_down ~ "Cluster 3",
+                !rna_ever_changed & prot_ever_up ~ "Cluster 4",
+                rna_ever_up & !rna_ever_down & prot_ever_down ~ "Cluster 5",
+                rna_ever_up & !rna_ever_down & !prot_ever_changed ~ "Cluster 6",
+                TRUE ~ NA_character_
             )
-    } else {
-        # Dominant: use the direction that appears most often across treatments
-        joined %>%
-            group_by(Species, Protein_id) %>%
-            summarise(
-                n_rna_down = sum(rna_sig == "down"),
-                n_rna_up = sum(rna_sig == "up"),
-                n_prot_down = sum(prot_sig == "down"),
-                n_prot_up = sum(prot_sig == "up"),
-                rna_ever_changed = any(rna_sig != "unchanged"),
-                prot_ever_changed = any(prot_sig != "unchanged"),
-                .groups = "drop"
-            ) %>%
-            mutate(
-                rna_dominant = case_when(
-                    n_rna_down > n_rna_up ~ "down",
-                    n_rna_up > n_rna_down ~ "up",
-                    TRUE ~ "unchanged"
-                ),
-                prot_dominant = case_when(
-                    n_prot_down > n_prot_up ~ "down",
-                    n_prot_up > n_prot_down ~ "up",
-                    TRUE ~ "unchanged"
-                ),
-                cluster = case_when(
-                    rna_dominant == "down" & !prot_ever_changed ~ "Cluster 1",
-                    rna_dominant == "down" & prot_dominant == "up" ~ "Cluster 2",
-                    !rna_ever_changed & prot_dominant == "down" ~ "Cluster 3",
-                    !rna_ever_changed & prot_dominant == "up" ~ "Cluster 4",
-                    rna_dominant == "up" & prot_dominant == "down" ~ "Cluster 5",
-                    rna_dominant == "up" & !prot_ever_changed ~ "Cluster 6",
-                    TRUE ~ NA_character_
-                )
-            )
-    }
+        )
 
     protein_pattern <- protein_pattern %>%
         filter(!is.na(cluster)) %>%
@@ -212,7 +173,7 @@ extract_dep_raw <- function(mat, metadata, species,
 #' @return ggplot object invisibly.
 plot_discordance_scatter <- function(
   discordance_df, dep_raw, deg_raw, output_path,
-  xlim = NULL, ylim = NULL, save_per_species = FALSE
+  xlim = NULL, ylim = NULL, save_per_species = FALSE, prefix = NULL
 ) {
     all_logfc <- inner_join(
         deg_raw %>% dplyr::select(Species, Protein_id, Treatment, rna_log2FC = log2FC),
@@ -230,6 +191,15 @@ plot_discordance_scatter <- function(
     foreground_df <- discordance_df %>%
         filter(is.finite(rna_log2FC), is.finite(prot_log2FC)) %>%
         mutate(cluster = factor(cluster, levels = names(CLUSTER_COLOURS)))
+
+    # Order clusters by size descending so smaller clusters are drawn on top
+    cluster_order <- foreground_df %>%
+        count(cluster) %>%
+        arrange(desc(n)) %>%
+        pull(cluster)
+
+    foreground_df <- foreground_df %>%
+        mutate(cluster = factor(cluster, levels = cluster_order))
 
     species_list <- sort(unique(foreground_df$Species))
 
@@ -253,7 +223,8 @@ plot_discordance_scatter <- function(
             c(floor(prot_range[1]), ceiling(prot_range[2]))
         }
 
-        p <- ggplot() + # <- assign to p here
+        # Draw clusters from largest to smallest so smaller ones appear on top
+        p <- ggplot() +
             geom_blank(
                 data = tibble(rna_log2FC = x_lim, prot_log2FC = y_lim),
                 aes(x = rna_log2FC, y = prot_log2FC)
@@ -262,12 +233,22 @@ plot_discordance_scatter <- function(
                 data = bg,
                 aes(x = rna_log2FC, y = prot_log2FC),
                 colour = "grey75", alpha = 0.4, size = 0.8
-            ) +
-            geom_point(
-                data = fg,
-                aes(x = rna_log2FC, y = prot_log2FC, colour = cluster),
-                alpha = 0.7, size = 1.2
-            ) +
+            )
+
+        # Add clusters one by one from largest to smallest
+        for (cl in levels(fg$cluster)) {
+            p <- p +
+                geom_star(
+                    data = fg %>% filter(cluster == cl),
+                    aes(
+                        x = rna_log2FC, y = prot_log2FC,
+                        fill = cluster, starshape = Treatment
+                    ),
+                    alpha = 0.7, size = 1.5, colour = NA
+                )
+        }
+
+        p <- p +
             geom_vline(xintercept = 0, linetype = "dashed", colour = "grey30", linewidth = 0.5) +
             geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30", linewidth = 0.5) +
             annotate(
@@ -277,11 +258,34 @@ plot_discordance_scatter <- function(
                 hjust = 0, vjust = 1,
                 size = 3, colour = "grey30", fontface = "italic"
             ) +
-            scale_colour_manual(
+            scale_fill_manual(
                 values = CLUSTER_COLOURS,
                 labels = CLUSTER_LABELS,
                 name   = "mRNA \u2013 Protein",
+                breaks = names(CLUSTER_COLOURS),
                 drop   = FALSE
+            ) +
+            scale_starshape_manual(
+                values = TREATMENT_SHAPES,
+                name   = "Treatment"
+            ) +
+            guides(
+                starshape = guide_legend(
+                    override.aes = list(
+                        fill   = "grey40",
+                        colour = "grey40",
+                        size   = 3,
+                        alpha  = 1
+                    )
+                ),
+                fill = guide_legend(
+                    override.aes = list(
+                        starshape = 15, # solid square for cluster legend
+                        colour    = "white",
+                        size      = 3,
+                        alpha     = 1
+                    )
+                )
             ) +
             scale_x_continuous(
                 limits = x_lim,
@@ -312,12 +316,20 @@ plot_discordance_scatter <- function(
             )
 
         if (save_per_species) {
+            output_file <- file.path(
+                output_path,
+                species,
+                paste0(
+                    if (!is.null(prefix)) paste0(prefix, "_") else "",
+                    "discordance_scatter"
+                )
+            )
             save_plot(
                 plot = p,
-                filepath = file.path(output_path, species, "discordance_scatter"),
+                filepath = output_file,
                 width = 6, height = 5
             )
-            message("Discordance scatter saved for: ", species, MSG_FIG_FORMAT)
+            message("Discordance scatter saved: ", output_file, MSG_FIG_FORMAT)
         }
 
         p

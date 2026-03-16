@@ -736,6 +736,8 @@ deg_raw <- map_dfr(rna_files, function(filepath) {
     filter(!is.na(log2FC), !is.na(fdr)) %>%
     filter(Protein_id %in% common_ids)
 
+print
+
 deg_data <- deg_raw %>%
     group_by(Species, Treatment) %>%
     summarise(
@@ -836,7 +838,8 @@ dep_raw <- map_dfr(species_list, function(species) {
 
 discordance_df <- build_discordance_clusters(
     deg_raw, dep_raw,
-    direction_method = "strict" # dominant
+    fc_threshold = DE_FC_THRESHOLD,
+    pval_threshold = DEP_PVAL_THRESHOLD
 )
 
 # Save
@@ -882,6 +885,7 @@ The 6 gene clusters whose mRNA and protein level have different discordant regul
 ```{r discordant-scatter}
 source("sources/discordant_analyses.R")
 # Per-species with free limits — saves individual plots
+
 invisible(plot_discordance_scatter(
     discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
     save_per_species = TRUE
@@ -1032,4 +1036,144 @@ save_plot(
     filepath = output_file,
     width = 16, height = 10
 )
+```
+
+```{r discordant-scatter-per-treatment}
+source("sources/discordant_analyses.R")
+# Per-species with free limits — saves individual plots
+
+for (treat in STRESS_TREATMENTS) {
+    filtered_discordance_df <- discordance_df %>%
+        filter(Treatment == treat)
+    filtered_dep_raw <- dep_raw %>%
+        filter(Treatment == treat)
+    filtered_deg_raw <- deg_raw %>%
+        filter(Treatment == treat)
+
+    invisible(
+        plot_discordance_scatter(
+            filtered_discordance_df,
+            filtered_dep_raw,
+            filtered_deg_raw,
+            SUPP_OUTPUT_PATH,
+            prefix = treat,
+            save_per_species = TRUE
+        )
+    )
+
+    # Combined with shared limits
+    plots <- plot_discordance_scatter(
+        filtered_discordance_df,
+        filtered_dep_raw,
+        filtered_deg_raw,
+        SUPP_OUTPUT_PATH,
+        xlim = c(-11, 16), ylim = c(-5, 5)
+    )
+
+    combined <- wrap_plots(plots, nrow = 1) +
+        plot_layout(guides = "collect") &
+        theme(legend.position = "top")
+
+    output_file <- file.path(
+        SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter", sep = "_")
+    )
+    save_plot(combined, output_file, width = 16, height = 5)
+
+    message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
+}
+# Collect one combined plot per treatment
+all_treatment_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
+    filtered_discordance_df <- discordance_df %>% filter(Treatment == treat)
+    filtered_dep_raw <- dep_raw %>% filter(Treatment == treat)
+    filtered_deg_raw <- deg_raw %>% filter(Treatment == treat)
+
+    plots <- plot_discordance_scatter(
+        filtered_discordance_df,
+        filtered_dep_raw,
+        filtered_deg_raw,
+        SUPP_OUTPUT_PATH,
+        xlim = c(-11, 16), ylim = c(-5, 5)
+    )
+
+    # One combined row per treatment with title
+    wrap_plots(plots, nrow = 1) +
+        plot_layout(guides = "collect") +
+        plot_annotation(title = treat) &
+        theme(
+            legend.position  = "none", # hide per-treatment legends
+            plot.title       = element_text(face = "bold", size = 10)
+        )
+})
+
+# Extract legend from one plot to place in the empty cell
+legend_plot <- plot_discordance_scatter(
+    discordance_df %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+    dep_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+    deg_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+    SUPP_OUTPUT_PATH,
+    xlim = c(-11, 16), ylim = c(-5, 5)
+)[[1]] +
+    theme(legend.position = "right") +
+    guides(
+        starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+        fill      = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+    )
+
+# Build 4x3 grid: 10 treatments + 1 legend + 1 empty
+grid_plots <- c(
+    all_treatment_plots,
+    list(cowplot::get_legend(legend_plot) %>% wrap_elements()),
+    list(plot_spacer())
+)
+
+# One row per species across all treatments
+walk(sort(unique(discordance_df$Species)), function(species) {
+    species_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
+        filtered_discordance_df <- discordance_df %>% filter(Treatment == treat, Species == species)
+        filtered_dep_raw <- dep_raw %>% filter(Treatment == treat, Species == species)
+        filtered_deg_raw <- deg_raw %>% filter(Treatment == treat, Species == species)
+
+        plots <- plot_discordance_scatter(
+            filtered_discordance_df,
+            filtered_dep_raw,
+            filtered_deg_raw,
+            SUPP_OUTPUT_PATH,
+            xlim = c(-11, 16), ylim = c(-5, 5)
+        )
+
+        plots[[1]] +
+            theme(legend.position = "none") +
+            labs(title = treat) +
+            theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
+    })
+
+    # 4x3 grid with legend in last cell
+    legend_p <- cowplot::get_legend(
+        plots[[1]] +
+            theme(legend.position = "right") +
+            guides(
+                starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+                fill      = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+            )
+    )
+
+    combined_species <- wrap_plots(
+        c(species_plots, list(wrap_elements(legend_p), plot_spacer())),
+        ncol = 3
+    ) +
+        plot_annotation(
+            title    = format_species_title(species),
+            theme    = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
+        )
+
+    print(combined_species)
+    output_file <- file.path(
+        SUPP_OUTPUT_PATH, species,
+        paste0("all_treatments_discordance_scatter")
+    )
+    save_plot(combined_species, output_file, width = 18, height = 24)
+    message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
+
+    print(combined_species)
+})
 ```
