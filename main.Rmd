@@ -10,7 +10,6 @@ output:
         lightbox: true
 pkgdown:
   as_is: true
-
 ---
 
 
@@ -101,6 +100,7 @@ TREATMENT_SHAPES <- c(
 # Uncomment the quantification you want to use
 # PROTEIN_QUANTIFICATION_METHOD <- "RI" # Intensity divided by the number of razor peptide
 PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
+# TODO boxplot with protein lenght
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC" # Total intensity divided by the number of expected peptide after trypsin digestion
 # PROTEIN_QUANTIFICATION_METHOD = "IBAC_MC" Same but miss cleavage parameter filter added
 
@@ -110,7 +110,8 @@ dirs <- list(
     RNA_DATA        = file.path("DATA", "Read_counts"),
     PROTEIN_DATA    = file.path("DATA", "Proteome"),
     PROTEIN_FASTA   = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
-    ESSENTIAL_GENES = file.path("DATA", "Essential genes")
+    ESSENTIAL_GENES = file.path("DATA", "Essential genes"),
+    ENRICHMENT      = file.path("DATA", "Enrichment")
 )
 
 walk(dirs, check_dir, return_error = TRUE)
@@ -325,7 +326,7 @@ save_plot(
     plot     = combined,
     filepath = file.path(OUTPUT_PATH, "TPM_detection_distribution"),
     width    = 16,
-    height   = 5
+    height   = 4
 )
 
 message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -937,6 +938,31 @@ save_plot(
 message("Combined discordance profiles saved: ", output_file, MSG_FIG_FORMAT)
 print(combined)
 ```
+
+## Enrichment 
+
+```{r enrichment-loading}
+source("sources/discordant_analyses.R")
+
+enrichment_results <- run_enrichment_all(
+    discordance_df = discordance_df,
+    pval_cutoff    = 0.01,
+    qval_cutoff    = 0.2,
+    output_path    = OUTPUT_PATH
+)
+```
+
+```{r enrichment-mapping}
+source("sources/discordant_analyses.R")
+p <- plot_enrichment_dotplot(
+    enrichment_results = enrichment_results,
+    fdr_threshold      = 0.05,
+    top_n              = 12, # limit to top 30 terms per cluster
+    output_path        = OUTPUT_PATH
+)
+print(p)
+```
+
 # Supplementary figures
 ```{r supp-config}
 SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
@@ -1176,4 +1202,15 @@ walk(sort(unique(discordance_df$Species)), function(species) {
 
     print(combined_species)
 })
+```
+
+```{r full-enrichment-mapping}
+source("sources/discordant_analyses.R")
+p <- plot_enrichment_dotplot(
+    enrichment_results = enrichment_results,
+    fdr_threshold      = 0.05,
+    top_n              = NULL, # limit to top 30 terms per cluster
+    output_path        = OUTPUT_PATH
+)
+print(p)
 ```

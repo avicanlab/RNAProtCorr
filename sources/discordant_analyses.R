@@ -10,6 +10,7 @@
 #
 
 library(ggstar)
+library(clusterProfiler)
 
 CLUSTER_COLOURS <- c(
     "Cluster 1" = "#E8A838",
@@ -449,4 +450,308 @@ plot_discordance_profiles <- function(discordance_df, output_path,
     }
 
     wrap_elements(g)
+}
+
+#' Load Enrichment Annotation Files for One Species
+#'
+#' @param species Chr. Species name matching ENRICHMENT_FILES keys.
+#' @return List with term2gene, term2name, universe.
+load_enrichment_data <- function(species) {
+    abbv <- ifelse(
+        species == "Salmonella_enterica",
+        "SE",
+        ifelse(
+            species == "Staphylococcus_aureus",
+            "SA",
+            "YP"
+        )
+    )
+    files <- list(
+        term2gene = file.path(ENRICHMENT, paste0("TERM2GENE_", abbv, ".xlsx")),
+        term2name = file.path(ENRICHMENT, paste0("TERM2NAME_", abbv, ".xlsx")),
+        universe = file.path(ENRICHMENT, paste0("universe_", abbv, ".csv"))
+    )
+    if (is.null(files)) stop("No enrichment files configured for: ", species)
+
+    list(
+        term2gene = read_excel(files$term2gene, col_names = TRUE),
+        term2name = read_excel(files$term2name, col_names = TRUE),
+        universe = read_csv(files$universe, col_names = TRUE, show_col_types = FALSE) %>%
+            pull(1)
+    )
+}
+
+
+#' Run clusterProfiler enricher for One Gene Set
+#'
+#' @param gene_ids    Chr vector. Protein IDs to test.
+#' @param term2gene   Tibble. Two columns: TERM, GENE.
+#' @param term2name   Tibble. Two columns: TERM, ONTOLOGY (description).
+#' @param universe    Chr vector. Background gene set.
+#' @param pval_cutoff Num. p-value cutoff. Default 0.05.
+#' @param qval_cutoff Num. q-value cutoff. Default 0.2.
+#'
+#' @return enrichResult object or NULL if no terms found.
+run_enricher <- function(
+  gene_ids,
+  term2gene,
+  term2name,
+  universe,
+  pval_cutoff = 0.05,
+  qval_cutoff = 0.2
+) {
+    if (length(gene_ids) == 0) {
+        message("    No genes to enrich — skipping.")
+        return(NULL)
+    }
+
+    result <- tryCatch(
+        enricher(
+            gene          = gene_ids,
+            TERM2GENE     = term2gene,
+            TERM2NAME     = term2name,
+            universe      = universe,
+            pvalueCutoff  = pval_cutoff,
+            qvalueCutoff  = qval_cutoff,
+            minGSSize     = 5,
+            maxGSSize     = 500
+        ),
+        error = function(e) {
+            message("    enricher error: ", e$message)
+            NULL
+        }
+    )
+
+    if (is.null(result) || nrow(result@result) == 0) {
+        message("    No significant terms found.")
+        return(NULL)
+    }
+
+    result
+}
+
+#' Run Enrichment Analysis per Cluster and Species
+#'
+#' @param discordance_df Tibble. Output of build_discordance_clusters().
+#' @param pval_cutoff    Num. p-value cutoff.
+#' @param qval_cutoff    Num. q-value cutoff.
+#' @param output_path    Chr. Directory for saving results.
+#'
+#' @return Nested list: results[[species]][[cluster]]
+run_enrichment_all <- function(
+  discordance_df,
+  pval_cutoff = 0.05,
+  qval_cutoff = 0.2,
+  output_path = NULL
+) {
+    species_list <- unique(discordance_df$Species)
+
+    map(species_list, function(species) {
+        message("\nRunning enrichment for: ", species)
+
+        annot <- load_enrichment_data(species)
+        clusters <- unique(discordance_df$cluster)
+
+        map(sort(clusters), function(cl) {
+            message("  Cluster: ", cl)
+
+            gene_ids <- discordance_df %>%
+                filter(Species == species, cluster == cl) %>%
+                distinct(Protein_id) %>%
+                pull(Protein_id)
+
+            message("    Genes: ", length(gene_ids))
+
+            result <- run_enricher(
+                gene_ids    = gene_ids,
+                term2gene   = annot$term2gene,
+                term2name   = annot$term2name,
+                universe    = annot$universe,
+                pval_cutoff = pval_cutoff,
+                qval_cutoff = qval_cutoff
+            )
+
+            if (!is.null(result) && !is.null(output_path)) {
+                out_file <- file.path(
+                    output_path, species,
+                    paste0(species, "_", cl, "_enrichment.tsv")
+                )
+                write.table(
+                    as.data.frame(result),
+                    out_file,
+                    sep = "\t", row.names = FALSE, quote = FALSE
+                )
+                message("    Saved: ", out_file)
+            }
+
+            result
+        }) %>% setNames(sort(clusters))
+    }) %>% setNames(species_list)
+}
+
+#' Plot Enrichment Dot Plot — All Clusters and Species
+#'
+#' @description
+#' Dot plot showing enriched GO terms per cluster and species.
+#' Rows = GO terms, columns = species within each cluster facet.
+#' Dot size = gene count, dot colour = -log10(FDR).
+#' Only terms significant in at least one species/cluster are shown.
+#'
+#' @param enrichment_results Nested list. Output of run_enrichment_all().
+#'   Structure: results[[species]][[cluster]]
+#' @param fdr_threshold      Num. FDR threshold line. Default 0.05.
+#' @param top_n              Int. Max terms to show per cluster. Default NULL (all).
+#' @param output_path        Chr. Directory for saving output files.
+#'
+#' @return ggplot object invisibly.
+plot_enrichment_dotplot <- function(
+  enrichment_results,
+  fdr_threshold = 0.05,
+  top_n = NULL,
+  output_path = NULL
+) {
+    # Flatten nested list into one tibble
+    plot_df <- map_dfr(names(enrichment_results), function(species) {
+        map_dfr(names(enrichment_results[[species]]), function(cl) {
+            res <- enrichment_results[[species]][[cl]]
+            if (is.null(res)) {
+                return(NULL)
+            }
+
+            as.data.frame(res) %>%
+                as_tibble() %>%
+                mutate(
+                    Species = species,
+                    cluster = cl
+                )
+        })
+    }) %>%
+        mutate(
+            neg_log10_fdr = -log10(p.adjust),
+            cluster       = factor(cluster, levels = names(CLUSTER_COLOURS)),
+            Species       = factor(Species, levels = sort(unique(Species)))
+        )
+
+    if (nrow(plot_df) == 0) {
+        warning("No significant enrichment results to plot.")
+        return(invisible(NULL))
+    }
+
+    # Optionally keep only top_n terms per cluster by FDR
+    if (!is.null(top_n)) {
+        plot_df <- plot_df %>%
+            group_by(cluster, Description) %>%
+            summarise(min_fdr = min(p.adjust), .groups = "drop") %>%
+            group_by(cluster) %>%
+            slice_min(min_fdr, n = top_n) %>%
+            dplyr::select(cluster, Description) %>%
+            inner_join(plot_df, by = c("cluster", "Description"))
+    }
+
+    # Keep only terms significant in at least one species x cluster
+    sig_terms <- plot_df %>%
+        filter(p.adjust < fdr_threshold) %>%
+        distinct(Description)
+
+    plot_df <- plot_df %>%
+        semi_join(sig_terms, by = "Description")
+
+    # Order terms alphabetically
+    term_order <- sort(unique(plot_df$Description))
+    plot_df <- plot_df %>%
+        mutate(Description = factor(Description, levels = rev(term_order)))
+
+    # Species x-axis labels using PLOT_SPECIES_NAMES
+    species_levels <- levels(plot_df$Species)
+    species_labels <- setNames(
+        lapply(species_levels, format_species_title, linebreak = TRUE),
+        species_levels
+    )
+
+    # Cluster facet labels
+    cluster_labeller <- as_labeller(CLUSTER_LABELS)
+
+    # FDR threshold as -log10
+    fdr_line <- -log10(fdr_threshold)
+
+    p <- ggplot(
+        plot_df,
+        aes(
+            x = Species, y = Description,
+            size = Count,
+            colour = neg_log10_fdr
+        )
+    ) +
+        geom_point(alpha = 0.9) +
+        geom_hline(
+            yintercept = seq(0.5, length(term_order) + 0.5, 1),
+            colour = "grey92", linewidth = 0.3
+        ) +
+        facet_wrap(
+            ~cluster,
+            nrow = 1,
+            labeller = cluster_labeller
+        ) +
+        scale_colour_gradient(
+            low = "lightsalmon",
+            high = "darkred",
+            name = "-log10(FDR)",
+            guide = guide_colourbar(
+                barwidth  = 0.8,
+                barheight = 4,
+                ticks     = FALSE
+            )
+        ) +
+        scale_size_continuous(
+            name   = "Count",
+            range  = c(1, 8),
+            breaks = c(15, 30, 45, 60, 75, 90)
+        ) +
+        scale_x_discrete(labels = species_labels) +
+        labs(x = NULL, y = NULL) +
+        theme_bw(base_size = 11) +
+        theme(
+            axis.text.x = element_text(
+                angle = 45, hjust = 1,
+                face = "italic", size = 11
+            ),
+            axis.text.y = element_text(size = 12),
+            strip.text = element_text(
+                size = 12, face = "bold",
+                colour = "white"
+            ),
+            axis.title = element_text(size = 12),
+            strip.background = element_rect(fill = "grey40"),
+            panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            panel.border = element_rect(colour = "grey70"),
+            legend.position = "right",
+            legend.title = element_text(size = 14),
+            legend.text = element_text(size = 12),
+            legend.key.size = unit(0.4, "cm")
+        )
+
+    # Colour cluster strip backgrounds
+    g <- ggplot_gtable(ggplot_build(p))
+    strip_idx <- which(grepl("strip-t", g$layout$name))
+    for (i in seq_along(strip_idx)) {
+        cl <- names(CLUSTER_COLOURS)[((i - 1) %% length(CLUSTER_COLOURS)) + 1]
+        col <- CLUSTER_COLOURS[cl]
+        g$grobs[[strip_idx[i]]]$grobs[[1]]$children[[1]]$gp$fill <- col
+    }
+
+    final <- wrap_elements(g)
+
+    if (!is.null(output_path)) {
+        n_terms <- n_distinct(plot_df$Description)
+        save_plot(
+            plot     = final,
+            filepath = file.path(output_path, "enrichment_dotplot"),
+            width    = 4 * length(unique(plot_df$cluster)),
+            height   = max(6, n_terms * 0.3)
+        )
+        message("Enrichment dotplot saved: ", file.path(output_path, "enrichment_dotplot"), MSG_FIG_FORMAT)
+    }
+
+    invisible(final)
 }
