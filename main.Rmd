@@ -6,7 +6,7 @@ output:
     rmdformats::downcute:
         code_folding: hide
         self_contained: true
-        thumbnails: true
+        thumbnails: false
         lightbox: true
 pkgdown:
   as_is: true
@@ -17,7 +17,9 @@ pkgdown:
 knitr::opts_chunk$set(
     message = FALSE,
     warning = FALSE,
-    error = FALSE
+    error = FALSE,
+    fig.height = 8,
+    fig.width = 16
 )
 ```
 
@@ -404,7 +406,7 @@ message(
 
 ## mRNA-protein levels correlation under different stress conditions and control condition
 
-```{r rna-protein-correlation}
+```{r rna-protein-correlation, fig.height = 24}
 source("sources/correlation.R")
 protQ_meanlog2 <- paste0(PROTEIN_QUANTIFICATION_METHOD, "_meanlog2")
 common_ids <- extract_common_ids(tpm_log2_data, protQ_data)
