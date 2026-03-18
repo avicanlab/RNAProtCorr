@@ -24,6 +24,7 @@ knitr::opts_chunk$set(
 ```{r load-environment, results='hide'}
 # Load library
 library(fs)
+library(purrr)
 library(readxl)
 library(tidyverse)
 library(patchwork)
@@ -211,7 +212,7 @@ if (nrow(removed_proteins) > 0) {
 }
 ```
 
-# Trancriptomic and Proteomic analysis of 3 human pathogens under 10 revelevant stress condition
+# Trancriptomic and Proteomic analysis of 3 human pathogens under 10 relevant stress conditions
 
 ```{r load-annotation, results='hide'}
 annotation_files <- list.files(
@@ -548,7 +549,7 @@ message(
 
 ## Essential genes and all genes mRNA-protein level correlation
 
-mRNA-protein level correlations were measured with Pearsson correlation coefficient (R).
+mRNA-protein level correlations were measured with Pearson correlation coefficient (R).
 p values were calculated using a Wilcoxon rank sum test.
 
 ```{r essential-correlation}
@@ -879,7 +880,7 @@ summary_table <- discordant_proteins %>%
 write.table(summary_table, sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 
-## fold changes of mRNA and protein levels for each the 10 stress conditions in comparison to control for the three species. 
+## fold changes of mRNA and protein levels for each of the 10 stress conditions in comparison to control for the three species.
 
 The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors. 
 
