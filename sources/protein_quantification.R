@@ -55,8 +55,8 @@ keep_cols <- c(
 #' @param max_peptide_len Maximum peptide length (default 30)
 #' @return A filtered tibble
 filter_peptides <- function(peps, min_peptide_len = 6, max_peptide_len = 30) {
-    lengths <- nchar(peps$peptide)
-    peps[lengths >= min_peptide_len & lengths <= max_peptide_len, ]
+  lengths <- nchar(peps$peptide)
+  peps[lengths >= min_peptide_len & lengths <= max_peptide_len,]
 }
 
 #' Run in silico trypsin digestion on one or more FASTA files
@@ -77,97 +77,100 @@ filter_peptides <- function(peps, min_peptide_len = 6, max_peptide_len = 30) {
 #'
 #' @return A tibble with Species, Protein_id and observable peptide count
 process_tryptic <- function(fasta_paths, output_path,
-                            enzym           = "trypsin",
+                            enzym = "trypsin",
                             missed_cleavages = 0,
-                            min_peptide_len  = 6,
-                            max_peptide_len  = 30) {
+                            min_peptide_len = 6,
+                            max_peptide_len = 30) {
 
-    all_fasta_ids      <- c()
-    all_raw_digests    <- tibble()
-    all_filtered_digests <- tibble()
+  all_fasta_ids <- c()
+  all_raw_digests <- tibble()
+  all_filtered_digests <- tibble()
 
-    for (fasta_path in fasta_paths) {
-        message("\nProcessing:", fasta_path, "\n")
+  for (fasta_path in fasta_paths) {
+    message("\nProcessing:", fasta_path, "\n")
 
-        species   <- tools::file_path_sans_ext(
-            str_extract(basename(fasta_path), "^[A-Za-z]+_[A-Za-z]+")
-        )
-        fasta     <- readAAStringSet(fasta_path)
-        fasta_ids <- sub(" .*", "", names(fasta))
+    species <- tools::file_path_sans_ext(
+      str_extract(basename(fasta_path), "^[A-Za-z]+_[A-Za-z]+")
+    )
+    fasta <- readAAStringSet(fasta_path)
+    fasta_ids <- sub(" .*", "", names(fasta))
 
-        # Warn on duplicate protein IDs across FASTA files (not expected)
-        duplicated_ids <- intersect(fasta_ids, all_fasta_ids)
-        if (length(duplicated_ids) > 0) {
-            warning(
-                length(duplicated_ids), " protein ID(s) in ", basename(fasta_path),
-                " already present in a previous FASTA file.\n",
-                "Duplicated IDs: ", paste(head(duplicated_ids, 5), collapse = ", "),
-                if (length(duplicated_ids) > 5) " ..." else ""
-            )
-        }
-
-        all_fasta_ids <- c(all_fasta_ids, fasta_ids)
-
-        peptides_per_protein <- cleave(fasta, enzym = enzym, missedCleavages = missed_cleavages)
-        raw_digests <- map_dfr(names(peptides_per_protein), function(protein_name) {
-            tibble(
-                Species    = species,
-                Protein_id = sub(" .*", "", protein_name),
-                peptide    = as.character(peptides_per_protein[[protein_name]])
-            )
-        })
-
-        filtered_digests <- filter_peptides(raw_digests, min_peptide_len, max_peptide_len)
-
-        all_raw_digests      <- bind_rows(all_raw_digests,      raw_digests)
-        all_filtered_digests <- bind_rows(all_filtered_digests, filtered_digests)
+    # Warn on duplicate protein IDs across FASTA files (not expected)
+    duplicated_ids <- intersect(fasta_ids, all_fasta_ids)
+    if (length(duplicated_ids) > 0) {
+      warning(
+        length(duplicated_ids), " protein ID(s) in ", basename(fasta_path),
+        " already present in a previous FASTA file.\n",
+        "Duplicated IDs: ", paste(head(duplicated_ids, 5), collapse = ", "),
+        if (length(duplicated_ids) > 5) " ..." else ""
+      )
     }
 
-    # Peptide filtering comparison table — one row per species
-    comparison_table <- all_raw_digests %>%
-        count(Species, name = "n_before") %>%
-        left_join(
-            all_filtered_digests %>% count(Species, name = "n_after"),
-            by = "Species"
-        ) %>%
-        mutate(
-            n_removed = n_before - n_after,
-            pct_kept  = round(100 * n_after / n_before, 1)
-        )
+    all_fasta_ids <- c(all_fasta_ids, fasta_ids)
 
-    message("\nPeptide filtering summary (length ", min_peptide_len, "-", max_peptide_len, " aa):\n")
-    write.table(
-        comparison_table,
-        paste0(output_path, "peptide_filter_comparison.tsv"),
-        sep = "\t", row.names = FALSE, quote = FALSE
+    peptides_per_protein <- cleave(fasta, enzym = enzym, missedCleavages = missed_cleavages)
+    raw_digests <- map_dfr(names(peptides_per_protein), function(protein_name) {
+      tibble(
+        Species = species,
+        Protein_id = sub(" .*", "", protein_name),
+        peptide = as.character(peptides_per_protein[[protein_name]])
+      )
+    })
+
+    filtered_digests <- filter_peptides(raw_digests, min_peptide_len, max_peptide_len)
+
+    all_raw_digests <- bind_rows(all_raw_digests, raw_digests)
+    all_filtered_digests <- bind_rows(all_filtered_digests, filtered_digests)
+  }
+
+  # Peptide filtering comparison table — one row per species
+  comparison_table <- all_raw_digests %>%
+    count(Species, name = "n_before") %>%
+    left_join(
+      all_filtered_digests %>% count(Species, name = "n_after"),
+      by = "Species"
+    ) %>%
+    mutate(
+      n_removed = n_before - n_after,
+      pct_kept = round(100 * n_after / n_before, 1)
     )
 
-    # Observable peptide counts per protein
-    observable_peptides <- all_filtered_digests %>%
-        count(Species, Protein_id, name = "n_peptides")
+  message("\nPeptide filtering summary (length ", min_peptide_len, "-", max_peptide_len, " aa):\n")
+  output_file <- file.path(output_path, "peptide_filter_comparison.tsv")
+  write.table(
+    comparison_table,
+    output_file,
+    sep = "\t", row.names = FALSE, quote = FALSE
+  )
 
-    # Per-species summary statistics
-    summary_table <- observable_peptides %>%
-        group_by(Species) %>%
-        summarise(
-            Min    = min(n_peptides),
-            Q1     = quantile(n_peptides, 0.25),
-            Median = median(n_peptides),
-            Mean   = round(mean(n_peptides), 2),
-            Q3     = quantile(n_peptides, 0.75),
-            Max    = max(n_peptides),
-            .groups = "drop"
-        )
+  # Observable peptide counts per protein
+  observable_peptides <- all_filtered_digests %>%
+    count(Species, Protein_id, name = "n_peptides")
 
-    message("\nSummary of observable peptide counts after filtering:\n")
-    write.table(
-        summary_table,
-        paste0(output_path, "peptide_summary.tsv"),
-        sep = "\t", row.names = FALSE, quote = FALSE
+  # Per-species summary statistics
+  summary_table <- observable_peptides %>%
+    group_by(Species) %>%
+    summarise(
+      Min = min(n_peptides),
+      Q1 = quantile(n_peptides, 0.25),
+      Median = median(n_peptides),
+      Mean = round(mean(n_peptides), 2),
+      Q3 = quantile(n_peptides, 0.75),
+      Max = max(n_peptides),
+      .groups = "drop"
     )
 
-    observable_peptides
+  message("\nSummary of observable peptide counts after filtering:\n")
+  output_file <- file.path(output_path, "peptide_summary.tsv")
+  write.table(
+    summary_table,
+    output_file,
+    sep = "\t", row.names = FALSE, quote = FALSE
+  )
+
+  observable_peptides
 }
+
 # ============================================================================
 # QUANTIFICATION
 # ============================================================================
@@ -200,7 +203,7 @@ Intensity_quantification <- function(tmt_data) {
     mutate(
       Intensity = .data[[col_total_intensity]] * channel_intensity / channel_sum,
     ) %>%
-    filter(if_all(Intensity, ~ . > 0 & !is.na(.))) %>%
+    filter(if_all(Intensity, ~. > 0 & !is.na(.))) %>%
     group_by(Species, Protein_id, Treatment) %>%
     mutate(
       Intensity_log2 = log2(Intensity),
@@ -243,7 +246,7 @@ RI_quantification <- function(tmt_data) {
     mutate(
       RI = RI_total * (channel_intensity / channel_sum)
     ) %>%
-    filter(if_all(RI, ~ . > 0 & !is.na(.))) %>%
+    filter(if_all(RI, ~. > 0 & !is.na(.))) %>%
     group_by(Species, Protein_id, Treatment) %>%
     mutate(
       RI_log2 = log2(RI),
@@ -271,8 +274,8 @@ ibaq_quantification <- function(
   tmt_data,
   observable_peptides,
   observable_col = "n_tryptic",
-  output_path    = NULL
-  ) {
+  output_path = NULL
+) {
   message("Computing iBAQ for each sample...\n")
 
   channel_cols <- grep("^channel_", colnames(tmt_data), value = TRUE)
@@ -282,44 +285,44 @@ ibaq_quantification <- function(
     mutate(
       unmatched = is.na(.data[[observable_col]])
     ) %>%
-    {
-      unmatched_proteins <- distinct(filter(., unmatched), Species, Protein_id)
-      n_unmatched <- nrow(unmatched_proteins)
+  {
+    unmatched_proteins <- distinct(filter(., unmatched), Species, Protein_id)
+    n_unmatched <- nrow(unmatched_proteins)
 
-      if (n_unmatched > 0) {
-        warning(n_unmatched, " proteins had no match in FASTA and will have iBAQ = NA")
+    if (n_unmatched > 0) {
+      warning(n_unmatched, " proteins had no match in FASTA and will have iBAQ = NA")
 
-        if (!is.null(output_path)) {
-          unmatched_path <- file.path(output_path, "iBAQ_unmatched_proteins.tsv")
-          write.table(
-            unmatched_proteins %>% arrange(Species, Protein_id),
-            unmatched_path,
-            sep = "\t", row.names = FALSE, quote = FALSE
-          )
-          message("Unmatched proteins written to: ", unmatched_path)
-        }
+      if (!is.null(output_path)) {
+        unmatched_path <- file.path(output_path, "iBAQ_unmatched_proteins.tsv")
+        write.table(
+          unmatched_proteins %>% arrange(Species, Protein_id),
+          unmatched_path,
+          sep = "\t", row.names = FALSE, quote = FALSE
+        )
+        message("Unmatched proteins written to: ", unmatched_path)
       }
-      .
-    } %>%
+    }
+    .
+  } %>%
     mutate(
-      iBAQ_total  = total_intensity / .data[[observable_col]],
+      iBAQ_total = total_intensity / .data[[observable_col]],
       channel_sum = rowSums(across(all_of(channel_cols)), na.rm = TRUE)
     ) %>%
     pivot_longer(
-      cols      = all_of(channel_cols),
-      names_to  = "channel_col",
+      cols = all_of(channel_cols),
+      names_to = "channel_col",
       values_to = "channel_intensity"
     ) %>%
     filter(channel_col == paste0("channel_", TMT_label)) %>%
     mutate(iBAQ = iBAQ_total * (channel_intensity / channel_sum)) %>%
     group_by(Species, Protein_id, Treatment) %>%
     mutate(
-      iBAQ_log2      = log2(iBAQ),
-      iBAQ_meanlog2  = mean(iBAQ_log2, na.rm = TRUE),
+      iBAQ_log2 = log2(iBAQ),
+      iBAQ_meanlog2 = mean(iBAQ_log2, na.rm = TRUE),
       iBAQ_log2ratio = log2(iBAQ) - iBAQ_meanlog2,
-      riBAQ          = iBAQ / sum(iBAQ, na.rm = TRUE),
-      iBAQ_log       = 10 + log10(riBAQ),
-      iBAQ_PpB       = riBAQ * 1e9
+      riBAQ = iBAQ / sum(iBAQ, na.rm = TRUE),
+      iBAQ_log = 10 + log10(riBAQ),
+      iBAQ_PpB = riBAQ * 1e9
     ) %>%
     ungroup()
 }

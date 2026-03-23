@@ -2,24 +2,24 @@
 title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
-output: 
-    rmdformats::downcute:
-        code_folding: hide
-        self_contained: true
-        thumbnails: false
-        lightbox: true
+output:
+rmdformats::downcute:
+code_folding: hide
+self_contained: true
+thumbnails: false
+lightbox: true
 pkgdown:
-  as_is: true
+as_is: true
 ---
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-    message = FALSE,
-    warning = FALSE,
-    error = FALSE,
-    fig.height = 8,
-    fig.width = 16
+  message = FALSE,
+  warning = FALSE,
+  error = FALSE,
+  fig.height = 8,
+  fig.width = 16
 )
 ```
 
@@ -40,15 +40,15 @@ source("sources/utils.R")
 #' Species Abbreviation Mapping
 #' Maps full species names to abbreviations for data parsing
 SPECIES <- c(
-    "Salmonella_enterica",
-    "Staphylococcus_aureus",
-    "Yersinia_pseudotuberculosis"
+  "Salmonella_enterica",
+  "Staphylococcus_aureus",
+  "Yersinia_pseudotuberculosis"
 )
 
 SPECIES_ABBV_MAP <- c(
-    "Salmonella_enterica"         = "SALMT",
-    "Staphylococcus_aureus"       = "MSSA",
-    "Yersinia_pseudotuberculosis" = "YPSTB"
+  "Salmonella_enterica" = "SALMT",
+  "Staphylococcus_aureus" = "MSSA",
+  "Yersinia_pseudotuberculosis" = "YPSTB"
 )
 
 #' Treatment List
@@ -61,65 +61,65 @@ STRESS_TREATMENTS_PROT <- c(STRESS_TREATMENTS, "Hyp")
 TREATMENTS_LIST_RNA <- c("Ctrl", STRESS_TREATMENTS_RNA)
 
 PLOT_SPECIES_NAMES <- c(
-    "Salmonella_enterica"         = "S. enterica Typhimurium",
-    "Staphylococcus_aureus"       = "S. aureus",
-    "Yersinia_pseudotuberculosis" = "Y. pseudotuberculosis"
+  "Salmonella_enterica" = "S. enterica Typhimurium",
+  "Staphylococcus_aureus" = "S. aureus",
+  "Yersinia_pseudotuberculosis" = "Y. pseudotuberculosis"
 )
 
 
 #' Exposure Time Label Mapping
 #' Maps numeric exposure times (minutes) to display labels
 EXPOSURE_TIME_LABELS <- c(
-    "10"  = "10",
-    "20"  = "20 min",
-    "30"  = "30 min",
-    "240" = "4 hours",
-    "241" = "\u22654 hours"
+  "10" = "10",
+  "20" = "20 min",
+  "30" = "30 min",
+  "240" = "4 hours",
+  "241" = "\u22654 hours"
 )
 
 #' Measurement Display Labels
 MEASUREMENT_LABELS <- c(
-    "corr_intensity" = "Intensity",
-    "corr_RI"        = "RI",
-    "corr_iBAQ"      = "iBAQ",
-    "corr_iBAQ_mc"   = "iBAQ MC"
+  "corr_intensity" = "Intensity",
+  "corr_RI" = "RI",
+  "corr_iBAQ" = "iBAQ",
+  "corr_iBAQ_mc" = "iBAQ MC"
 )
 
 #' Treatment Shape Mapping (ggstar)
 TREATMENT_SHAPES <- c(
-    "As"   = 1,
-    "Bs"   = 14,
-    "Ctrl" = 15,
-    "Hyp"  = 11,
-    "Li"   = 7,
-    "Nd"   = 8,
-    "Ns"   = 4,
-    "Oss"  = 22,
-    "Oxs"  = 21,
-    "Sp"   = 23,
-    "Tm"   = 2
+  "As" = 1,
+  "Bs" = 14,
+  "Ctrl" = 15,
+  "Hyp" = 11,
+  "Li" = 7,
+  "Nd" = 8,
+  "Ns" = 4,
+  "Oss" = 22,
+  "Oxs" = 21,
+  "Sp" = 23,
+  "Tm" = 2
 )
 
 # Uncomment the quantification you want to use
 # PROTEIN_QUANTIFICATION_METHOD <- "RI" # Intensity divided by the number of razor peptide
-PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
+# PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
 # TODO boxplot with protein lenght
-# PROTEIN_QUANTIFICATION_METHOD = "IBAC" # Total intensity divided by the number of expected peptide after trypsin digestion
-# PROTEIN_QUANTIFICATION_METHOD = "IBAC_MC" Same but miss cleavage parameter filter added
+PROTEIN_QUANTIFICATION_METHOD = "iBAQ" # Total intensity divided by the number of expected peptide after trypsin digestion
+# PROTEIN_QUANTIFICATION_METHOD = "iBAQ_MC" Same but miss cleavage parameter filter added
 
 # --- Directories ---------------------------------------------------------------
 dirs <- list(
-    DATA            = file.path("DATA"),
-    RNA_DATA        = file.path("DATA", "Read_counts"),
-    PROTEIN_DATA    = file.path("DATA", "Proteome"),
-    PROTEIN_FASTA   = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
-    ESSENTIAL_GENES = file.path("DATA", "Essential genes"),
-    ENRICHMENT      = file.path("DATA", "Enrichment")
+  DATA = file.path("DATA"),
+  RNA_DATA = file.path("DATA", "Read_counts"),
+  PROTEIN_DATA = file.path("DATA", "Proteome"),
+  PROTEIN_FASTA = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
+  ESSENTIAL_GENES = file.path("DATA", "Essential genes"),
+  ENRICHMENT = file.path("DATA", "Enrichment")
 )
 
 walk(dirs, check_dir, return_error = TRUE)
 
-OUTPUT_PATH <- file.path("Analyses_intensity")
+OUTPUT_PATH <- file.path("Analyses_iBAQ")
 FIGURE_FORMAT <- c("png", "svg", "pdf") # "eps", "ps", "tex" (pictex), "jpeg", "tiff", "png", "bmp" or "wmf" (windows only)
 MSG_FIG_FORMAT <- paste0(".", paste(FIGURE_FORMAT, collapse = "/."))
 dir.create(OUTPUT_PATH)
@@ -127,10 +127,10 @@ for (species in SPECIES) dir.create(file.path(OUTPUT_PATH, species))
 
 # --- Required files ------------------------------------------------------------
 files <- list(
-    SAMPLE_MAPPING = file.path(dirs$PROTEIN_DATA, "sample_mapping.xlsx")
+  SAMPLE_MAPPING = file.path(dirs$PROTEIN_DATA, "sample_mapping.xlsx")
 )
 
-walk(files, ~ if (!file_exists(.x)) stop(.x, " not found"))
+walk(files, ~if (!file_exists(.x)) stop(.x, " not found"))
 
 # --- Expose to environment (equivalent to your original variables) -------------
 list2env(c(dirs, files), envir = .GlobalEnv)
@@ -143,15 +143,15 @@ source("sources/read_data.R")
 rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
 
 tpm_data <- map_dfr(rna_files, function(rna_file) {
-    species <- get_species_tpm(rna_file)
-    abbv <- SPECIES_ABBV_MAP[species]
-    read_tpm(rna_file, abbv) %>%
-        mutate(
-            Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment),
-            Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
-        ) %>%
-        filter(!is.na(Protein_id), !is.na(TPM)) %>%
-        mutate(Species = species)
+  species <- get_species_tpm(rna_file)
+  abbv <- SPECIES_ABBV_MAP[species]
+  read_tpm(rna_file, abbv) %>%
+    mutate(
+      Treatment = ifelse(Treatment == "Mig", "Hyp", Treatment),
+      Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE)
+    ) %>%
+    filter(!is.na(Protein_id), !is.na(TPM)) %>%
+    mutate(Species = species)
 })
 ```
 
@@ -159,43 +159,43 @@ tpm_data <- map_dfr(rna_files, function(rna_file) {
 # source("sources/read_data.R")
 # Load proteomic data
 sample_mapping <- read_excel(SAMPLE_MAPPING, col_names = TRUE) %>%
-    mutate(Replicate = paste0("R", Replicate))
+  mutate(Replicate = paste0("R", Replicate))
 protein_files <- list.files(
-    PROTEIN_DATA,
-    pattern = "\\.tsv$",
-    recursive = TRUE,
-    full.names = TRUE
+  PROTEIN_DATA,
+  pattern = "\\.tsv$",
+  recursive = TRUE,
+  full.names = TRUE
 )
 
 filter_log <- list()
 
 filtered_data <- map_dfr(protein_files, function(protein_file) {
-    species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", protein_file)
-    replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", protein_file)
+  species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", protein_file)
+  replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", protein_file)
 
-    tmt_raw <- read_tmt(protein_file)
-    filtered_raw <- filter_tmt(tmt_raw, species, replicate)
+  tmt_raw <- read_tmt(protein_file)
+  filtered_raw <- filter_tmt(tmt_raw, species, replicate)
 
-    filter_log[[species]][[replicate]] <<- filtered_raw$filter_log
+  filter_log[[species]][[replicate]] <<- filtered_raw$filter_log
 
-    filtered_raw$filtered_tmt %>%
-        mutate(Species = species, Replicate = replicate)
+  filtered_raw$filtered_tmt %>%
+    mutate(Species = species, Replicate = replicate)
 }) %>%
-    left_join(sample_mapping, by = c("Species", "Replicate"), relationship = "many-to-many")
+  left_join(sample_mapping, by = c("Species", "Replicate"), relationship = "many-to-many")
 
 # TODO put this in a function
 # Build and write filter log
-filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
-    mutate(across(-c("species", "replicate"), as.integer))
+filter_log_df <- map_dfr(filter_log, ~bind_rows(.x)) %>%
+  mutate(across(-c("species", "replicate"), as.integer))
 
 message("TMT filtering summary:\n")
 
 write.table(
-    filter_log_df,
-    file.path(OUTPUT_PATH, "filter_log.tsv"),
-    sep       = "\t",
-    row.names = FALSE,
-    quote     = FALSE
+  filter_log_df,
+  file.path(OUTPUT_PATH, "filter_log.tsv"),
+  sep = "\t",
+  row.names = FALSE,
+  quote = FALSE
 )
 
 # --- Filter for complete proteins ---
@@ -205,12 +205,12 @@ removed_proteins <- completeness_result$removed_proteins
 
 # Write removed proteins table for manual review
 if (nrow(removed_proteins) > 0) {
-    write.table(
-        removed_proteins %>% arrange(Species, Protein_id),
-        file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
-        sep = "\t", row.names = FALSE, quote = FALSE
-    )
-    message("Removed proteins written to: removed_proteins_incomplete.tsv")
+  write.table(
+    removed_proteins %>% arrange(Species, Protein_id),
+    file.path(OUTPUT_PATH, "removed_proteins_incomplete.tsv"),
+    sep = "\t", row.names = FALSE, quote = FALSE
+  )
+  message("Removed proteins written to: removed_proteins_incomplete.tsv")
 }
 ```
 
@@ -218,32 +218,32 @@ if (nrow(removed_proteins) > 0) {
 
 ```{r load-annotation, results='hide'}
 annotation_files <- list.files(
-    PROTEIN_DATA,
-    pattern     = "^annotation\\.xlsx$",
-    recursive   = TRUE,
-    full.names  = TRUE
+  PROTEIN_DATA,
+  pattern = "^annotation\\.xlsx$",
+  recursive = TRUE,
+  full.names = TRUE
 )
 
 annotation_data <- map_dfr(annotation_files, function(annotation_file) {
-    species <- path_file(path_dir(annotation_file))
-    read_excel(
-        annotation_file,
-        col_names = TRUE, na = "N/A"
-    ) %>%
-        select(locus_tag, old_locus_tag) %>%
-        mutate(
-            Protein_id = if_else(
-                is.na(locus_tag),
-                old_locus_tag,
-                locus_tag
-            ),
-            Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE),
-            Species = species
-        )
+  species <- path_file(path_dir(annotation_file))
+  read_excel(
+    annotation_file,
+    col_names = TRUE, na = "N/A"
+  ) %>%
+    select(locus_tag, old_locus_tag) %>%
+    mutate(
+      Protein_id = if_else(
+        is.na(locus_tag),
+        old_locus_tag,
+        locus_tag
+      ),
+      Protein_id = sub("^pi", "PI", Protein_id, ignore.case = FALSE),
+      Species = species
+    )
 })
 ```
 
-## Percentages of CDSs detected by transcriptomics and proteomics for the three species 
+## Percentages of CDSs detected by transcriptomics and proteomics for the three species
 ```{r cds-distribution}
 source("sources/cds_distribution.R")
 
@@ -252,21 +252,21 @@ detected_cds_file <- file.path(OUTPUT_PATH, "Detected_CDS.tsv")
 print(detected_cds_df)
 write.table(detected_cds_df, detected_cds_file, sep = "\t")
 p <- plot_barplot_detected_cds(
-    detected_cds_df,
-    position = "overlay"
+  detected_cds_df,
+  position = "overlay"
 )
 
 print(p)
 
 output_file <- file.path(OUTPUT_PATH, "CDS_detected")
 save_plot(
-    plot = p,
-    filepath = output_file,
-    width = 8,
-    height = 12,
+  plot = p,
+  filepath = output_file,
+  width = 8,
+  height = 12,
 )
 message(
-    "CDS detected for mRNA and prtoein saved: ", output_file, MSG_FIG_FORMAT
+  "CDS detected for mRNA and prtoein saved: ", output_file, MSG_FIG_FORMAT
 )
 ```
 
@@ -280,56 +280,56 @@ message(
 # Shared x_max across all species for visual consistency
 source("sources/cds_distribution.R")
 tpm_log2_data <- tpm_data %>%
-    group_by(Species) %>%
-    log2_transform(
-        value_col = "TPM",
-        group_cols = c("Species", "Protein_id", "Treatment"),
-        pseudocount = TRUE
-    ) %>%
-    filter(is.finite(mean_log2)) %>%
-    rename(mean_log2_TPM = mean_log2)
+  group_by(Species) %>%
+  log2_transform(
+    value_col = "TPM",
+    group_cols = c("Species", "Protein_id", "Treatment"),
+    pseudocount = TRUE
+  ) %>%
+  filter(is.finite(mean_log2)) %>%
+  rename(mean_log2_TPM = mean_log2)
 
 x_max <- tpm_log2_data %>%
-    summarise(x_max = ceiling(max(mean_log2_TPM, na.rm = TRUE) / 2.5) * 2.5) %>%
-    pull(x_max)
+  summarise(x_max = ceiling(max(mean_log2_TPM, na.rm = TRUE) / 2.5) * 2.5) %>%
+  pull(x_max)
 
 species_list <- unique(tpm_log2_data$Species)
 
 plots <- imap(species_list, function(species, i) {
-    message("Plotting TPM detection for: ", species)
+  message("Plotting TPM detection for: ", species)
 
-    classified <- classify_tpm_groups(tpm_log2_data, tmt_data, species)
+  classified <- classify_tpm_groups(tpm_log2_data, tmt_data, species)
 
-    p <- plot_tpm_detection_species(classified, species, x_max = x_max)
+  p <- plot_tpm_detection_species(classified, species, x_max = x_max)
 
-    output_sp <- file.path(OUTPUT_PATH, species, "TPM_detection_distribution")
-    save_plot(
-        plot     = p,
-        filepath = output_sp,
-        width    = 16,
-        height   = 5
-    )
+  output_sp <- file.path(OUTPUT_PATH, species, "TPM_detection_distribution")
+  save_plot(
+    plot = p,
+    filepath = output_sp,
+    width = 16,
+    height = 5
+  )
 
-    message(
-        "CDS distribution for ", species, " saved: ", output_sp, MSG_FIG_FORMAT
-    )
-    if (i > 1) p <- p + theme(axis.title.y = element_blank())
-    p
+  message(
+    "CDS distribution for ", species, " saved: ", output_sp, MSG_FIG_FORMAT
+  )
+  if (i > 1) p <- p + theme(axis.title.y = element_blank())
+  p
 })
 
 # Combined figure — all species side by side
 combined <- wrap_plots(plots, nrow = 1) +
-    plot_layout(guides = "collect") &
-    theme(legend.position = "right")
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
 
 print(combined)
 
 output_file <- file.path(OUTPUT_PATH, "TPM_detection_distribution")
 save_plot(
-    plot     = combined,
-    filepath = file.path(OUTPUT_PATH, "TPM_detection_distribution"),
-    width    = 16,
-    height   = 4
+  plot = combined,
+  filepath = file.path(OUTPUT_PATH, "TPM_detection_distribution"),
+  width = 16,
+  height = 4
 )
 
 message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -338,21 +338,21 @@ message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 # mRNA and protein level correlation under stress
 
 ## Protein quantification
-```{r in-silico-digest, eval = PROTEIN_QUANTIFICATION_METHOD %in% c("IBAC", "IBAC_MC")}
-# This chunk only runs if PROTEIN_QUANTIFICATION_METHOD is "IBAC" or "IBAC_MC"
+```{r in-silico-digest, eval = PROTEIN_QUANTIFICATION_METHOD %in% c("iBAQ", "iBAQ_MC")}
+# This chunk only runs if PROTEIN_QUANTIFICATION_METHOD is "iBAQ" or "iBAQ_MC"
 # For iBAQ quantification
 MIN_PEPTIDE_LEN <- 6
 MAX_PEPTIDE_LEN <- 30
-IBAC_MISS_CLEAVAGE <- 2
+IBAQ_MISS_CLEAVAGE <- 2
 source("sources/protein_quantification.R")
 
 fasta_files <- list.files(PROTEIN_FASTA, pattern = "\\.fa$", full.names = TRUE)
 protein2tryptic <- process_tryptic(
-    fasta_paths      = fasta_files,
-    output_path      = OUTPUT_PATH,
-    min_peptide_len  = MIN_PEPTIDE_LEN,
-    max_peptide_len  = MAX_PEPTIDE_LEN,
-    missed_cleavages = IBAC_MISS_CLEAVAGE
+  fasta_paths = fasta_files,
+  output_path = OUTPUT_PATH,
+  min_peptide_len = MIN_PEPTIDE_LEN,
+  max_peptide_len = MAX_PEPTIDE_LEN,
+  missed_cleavages = ifelse(PROTEIN_QUANTIFICATION_METHOD == "iBAQ", 0, IBAQ_MISS_CLEAVAGE)
 )
 ```
 ```{r protein-quantification}
@@ -361,18 +361,18 @@ source("sources/protein_quantification.R")
 # Protein quantification method — uncomment the desired one:
 # PROTEIN_QUANTIFICATION_METHOD <- "RI"       # Intensity divided by number of razor peptides
 # PROTEIN_QUANTIFICATION_METHOD <- "Intensity" # Direct intensity from TMT analyses
-# PROTEIN_QUANTIFICATION_METHOD <- "IBAC"        # Total intensity divided by number of expected tryptic peptides
-# PROTEIN_QUANTIFICATION_METHOD <- "IBAC_MC"  # Same as IBAC but with missed cleavage filter
+# PROTEIN_QUANTIFICATION_METHOD <- "iBAQ"        # Total intensity divided by number of expected tryptic peptides
+# PROTEIN_QUANTIFICATION_METHOD <- "iBAQ_MC"  # Same as iBAQ but with missed cleavage filter
 
 message("Quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 
 # Dispatch table: method -> quantification function
 quant_fn <- switch(PROTEIN_QUANTIFICATION_METHOD,
-    RI = function(x) RI_quantification(x),
-    Intensity = function(x) Intensity_quantification(x),
-    IBAC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
-    IBAC_MC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
-    stop("Unknown quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
+                   RI = function(x) RI_quantification(x),
+                   Intensity = function(x) Intensity_quantification(x),
+                   iBAQ = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+                   iBAQ_MC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+                   stop("Unknown quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 )
 
 quant_data <- quant_fn(tmt_data)
@@ -381,26 +381,26 @@ protQ_data <- completeness_result$filtered_data
 removed_proteins <- completeness_result$removed_proteins
 
 if (nrow(removed_proteins) > 0) {
-    removed_path <- file.path(
-        OUTPUT_PATH,
-        paste0(PROTEIN_QUANTIFICATION_METHOD, "_removed_proteins_incomplete.tsv")
-    )
-    write.table(
-        removed_proteins %>% arrange(Species, Protein_id),
-        removed_path,
-        sep = "\t", row.names = FALSE, quote = FALSE
-    )
-    message(PROTEIN_QUANTIFICATION_METHOD, " removed proteins written to: ", removed_path)
+  removed_path <- file.path(
+    OUTPUT_PATH,
+    paste0(PROTEIN_QUANTIFICATION_METHOD, "_removed_proteins_incomplete.tsv")
+  )
+  write.table(
+    removed_proteins %>% arrange(Species, Protein_id),
+    removed_path,
+    sep = "\t", row.names = FALSE, quote = FALSE
+  )
+  message(PROTEIN_QUANTIFICATION_METHOD, " removed proteins written to: ", removed_path)
 }
 protQ_path <- file.path(
-    OUTPUT_PATH,
-    paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
+  OUTPUT_PATH,
+  paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv")
 )
 write.table(protQ_data, protQ_path, sep = "\t", row.names = FALSE, quote = FALSE)
 message(
-    PROTEIN_QUANTIFICATION_METHOD,
-    " protein quantification data saved: ",
-    protQ_path
+  PROTEIN_QUANTIFICATION_METHOD,
+  " protein quantification data saved: ",
+  protQ_path
 )
 ```
 
@@ -415,19 +415,19 @@ tpm_log2_data <- tpm_log2_data %>% filter(Protein_id %in% common_ids)
 protQ_data <- protQ_data %>% filter(Protein_id %in% common_ids)
 corr_rna_prot <- calculate_correlation(tpm_log2_data, protQ_data, protQ_meanlog2)
 p <- plot_correlation(
-    corr_rna_prot, protQ_meanlog2, PROTEIN_QUANTIFICATION_METHOD, OUTPUT_PATH
+  corr_rna_prot, protQ_meanlog2, PROTEIN_QUANTIFICATION_METHOD, OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0("TMP_", PROTEIN_QUANTIFICATION_METHOD, "_correlation_panels")
+  OUTPUT_PATH,
+  paste0("TMP_", PROTEIN_QUANTIFICATION_METHOD, "_correlation_panels")
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 20,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 20,
+  units = "in"
 )
 message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
@@ -437,55 +437,55 @@ message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```{r get-essential-data}
 source("sources/essential_analyses.R")
 log2_mean_sd_transform <- function(data, value_col, group_cols = c("Species", "Protein_id"), pseudocount = FALSE) {
-    mean_col <- paste0("mean_log2_", value_col)
-    sd_col <- paste0("sd_log2_", value_col)
+  mean_col <- paste0("mean_log2_", value_col)
+  sd_col <- paste0("sd_log2_", value_col)
 
-    mean_data <- data %>%
-        log2_transform(value_col, group_cols = group_cols, pseudocount = pseudocount) %>%
-        filter(is.finite(mean_log2)) %>%
-        dplyr::rename(!!mean_col := mean_log2)
+  mean_data <- data %>%
+    log2_transform(value_col, group_cols = group_cols, pseudocount = pseudocount) %>%
+    filter(is.finite(mean_log2)) %>%
+    dplyr::rename(!!mean_col := mean_log2)
 
-    sd_data <- data %>%
-        log2_mean_sd(value_col, sd_col, group_cols = group_cols, pseudocount = pseudocount)
+  sd_data <- data %>%
+    log2_mean_sd(value_col, sd_col, group_cols = group_cols, pseudocount = pseudocount)
 
-    left_join(mean_data, sd_data, by = group_cols)
+  left_join(mean_data, sd_data, by = group_cols)
 }
 
 essential_files <- list.files(ESSENTIAL_GENES, pattern = "\\.xlsx$", full.names = TRUE)
 
 essential_df <- map_dfr(essential_files, function(file) {
-    species <- str_extract(basename(file), "Essential_genes_([A-Za-z]+)", group = 1)
-    tibble(
-        Species    = species_essential2tpm_map[species],
-        Protein_id = read_essential_vec(file)
-    )
+  species <- str_extract(basename(file), "Essential_genes_([A-Za-z]+)", group = 1)
+  tibble(
+    Species = species_essential2tpm_map[species],
+    Protein_id = read_essential_vec(file)
+  )
 })
 
 tpm_glob_log2mean_data <- tpm_data %>%
-    filter(Protein_id %in% common_ids) %>%
-    log2_mean_sd_transform("TPM", pseudocount = TRUE)
+  filter(Protein_id %in% common_ids) %>%
+  log2_mean_sd_transform("TPM", pseudocount = TRUE)
 
 protQ_glob_log2mean_data <- protQ_data %>%
-    filter(Protein_id %in% common_ids) %>%
-    log2_mean_sd_transform(PROTEIN_QUANTIFICATION_METHOD, pseudocount = FALSE)
+  filter(Protein_id %in% common_ids) %>%
+  log2_mean_sd_transform(PROTEIN_QUANTIFICATION_METHOD, pseudocount = FALSE)
 
 essential_counts_table <- essential_df %>%
-    group_by(Species) %>%
-    summarise(n_essential_total = n_distinct(Protein_id), .groups = "drop") %>%
-    left_join(
-        essential_df %>%
-            semi_join(tpm_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
-            group_by(Species) %>%
-            summarise(n_essential_rna = n_distinct(Protein_id), .groups = "drop"),
-        by = "Species"
-    ) %>%
-    left_join(
-        essential_df %>%
-            semi_join(protQ_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
-            group_by(Species) %>%
-            summarise(n_essential_prot = n_distinct(Protein_id), .groups = "drop"),
-        by = "Species"
-    )
+  group_by(Species) %>%
+  summarise(n_essential_total = n_distinct(Protein_id), .groups = "drop") %>%
+  left_join(
+    essential_df %>%
+      semi_join(tpm_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
+      group_by(Species) %>%
+      summarise(n_essential_rna = n_distinct(Protein_id), .groups = "drop"),
+    by = "Species"
+  ) %>%
+  left_join(
+    essential_df %>%
+      semi_join(protQ_glob_log2mean_data, by = c("Species", "Protein_id")) %>%
+      group_by(Species) %>%
+      summarise(n_essential_prot = n_distinct(Protein_id), .groups = "drop"),
+    by = "Species"
+  )
 
 print(essential_counts_table)
 ```
@@ -495,57 +495,57 @@ print(essential_counts_table)
 ```{r essential-distribution-rna}
 source("sources/essential_analyses.R")
 p <- plot_essential_distribution(
-    all_df = tpm_glob_log2mean_data,
-    essential_df = essential_df,
-    log2_col = "mean_log2_TPM",
-    x_lab = "TPM",
-    output_path = OUTPUT_PATH
+  all_df = tpm_glob_log2mean_data,
+  essential_df = essential_df,
+  log2_col = "mean_log2_TPM",
+  x_lab = "TPM",
+  output_path = OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0("TPM", "_essential_distribution")
+  OUTPUT_PATH,
+  paste0("TPM", "_essential_distribution")
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
 )
 message("TPM essential distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
-## Mean protein expression frequency of essential and non-essential genes 
+## Mean protein expression frequency of essential and non-essential genes
 ```{r essential-distribution-prot}
 source("sources/essential_analyses.R")
 p <- plot_essential_distribution(
-    all_df = protQ_glob_log2mean_data,
-    essential_df = essential_df,
-    log2_col = paste0("mean_log2_", PROTEIN_QUANTIFICATION_METHOD),
-    x_lab = PROTEIN_QUANTIFICATION_METHOD,
-    output_path = OUTPUT_PATH
+  all_df = protQ_glob_log2mean_data,
+  essential_df = essential_df,
+  log2_col = paste0("mean_log2_", PROTEIN_QUANTIFICATION_METHOD),
+  x_lab = PROTEIN_QUANTIFICATION_METHOD,
+  output_path = OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0(
-        PROTEIN_QUANTIFICATION_METHOD,
-        "_essential_distribution"
-    )
+  OUTPUT_PATH,
+  paste0(
+    PROTEIN_QUANTIFICATION_METHOD,
+    "_essential_distribution"
+  )
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
 )
 message(
-    PROTEIN_QUANTIFICATION_METHOD,
-    " essential distribution combined figure saved: ",
-    output_file,
-    MSG_FIG_FORMAT
+  PROTEIN_QUANTIFICATION_METHOD,
+  " essential distribution combined figure saved: ",
+  output_file,
+  MSG_FIG_FORMAT
 )
 ```
 
@@ -557,41 +557,41 @@ p values were calculated using a Wilcoxon rank sum test.
 ```{r essential-correlation}
 source("sources/essential_analyses.R")
 essential_tpm_df <- tpm_log2_data %>%
-    semi_join(essential_df, by = c("Species", "Protein_id")) %>%
-    filter(is.finite(mean_log2_TPM))
+  semi_join(essential_df, by = c("Species", "Protein_id")) %>%
+  filter(is.finite(mean_log2_TPM))
 essential_protQ_df <- protQ_data %>%
-    semi_join(essential_df, by = c("Species", "Protein_id")) %>%
-    filter(is.finite(.data[[protQ_meanlog2]]))
+  semi_join(essential_df, by = c("Species", "Protein_id")) %>%
+  filter(is.finite(.data[[protQ_meanlog2]]))
 
 corr_essential_rna_prot <- calculate_correlation(
-    essential_tpm_df, essential_protQ_df, protQ_meanlog2
+  essential_tpm_df, essential_protQ_df, protQ_meanlog2
 )
 
 p <- plot_essential_vs_all_correlation(
-    corr_rna_prot,
-    corr_essential_rna_prot,
-    PROTEIN_QUANTIFICATION_METHOD,
-    OUTPUT_PATH
+  corr_rna_prot,
+  corr_essential_rna_prot,
+  PROTEIN_QUANTIFICATION_METHOD,
+  OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0(
-        PROTEIN_QUANTIFICATION_METHOD,
-        "_essential_vs_all_correlation"
-    )
+  OUTPUT_PATH,
+  paste0(
+    PROTEIN_QUANTIFICATION_METHOD,
+    "_essential_vs_all_correlation"
+  )
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
 )
 message(
-    "mRNA-Protein correlation all genes vs essential genes combined figure saved: ",
-    output_file,
-    MSG_FIG_FORMAT
+  "mRNA-Protein correlation all genes vs essential genes combined figure saved: ",
+  output_file,
+  MSG_FIG_FORMAT
 )
 ```
 
@@ -599,58 +599,58 @@ message(
 ```{r essential-sd-rna}
 source("sources/essential_analyses.R")
 p <- plot_sd_distribution(
-    all_df = tpm_glob_log2mean_data,
-    essential_df = essential_df,
-    sd_col = "sd_log2_TPM",
-    x_lab = "TPM",
-    output_path = OUTPUT_PATH
+  all_df = tpm_glob_log2mean_data,
+  essential_df = essential_df,
+  sd_col = "sd_log2_TPM",
+  x_lab = "TPM",
+  output_path = OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0("TPM", "_essential_sd_distribution")
+  OUTPUT_PATH,
+  paste0("TPM", "_essential_sd_distribution")
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
 )
 message("TPM essential standard deviation distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
-## Frequency of standard deviation of protein expression 
+## Frequency of standard deviation of protein expression
 ```{r essential-sd-prot}
 source("sources/utils.R")
 source("sources/essential_analyses.R")
 p <- plot_sd_distribution(
-    all_df = protQ_glob_log2mean_data,
-    essential_df = essential_df,
-    sd_col = paste0("sd_log2_", PROTEIN_QUANTIFICATION_METHOD),
-    x_lab = PROTEIN_QUANTIFICATION_METHOD,
-    output_path = OUTPUT_PATH
+  all_df = protQ_glob_log2mean_data,
+  essential_df = essential_df,
+  sd_col = paste0("sd_log2_", PROTEIN_QUANTIFICATION_METHOD),
+  x_lab = PROTEIN_QUANTIFICATION_METHOD,
+  output_path = OUTPUT_PATH
 )
 print(p)
 output_file <- file.path(
-    OUTPUT_PATH,
-    paste0(
-        PROTEIN_QUANTIFICATION_METHOD,
-        "_essential_sd_distribution"
-    )
+  OUTPUT_PATH,
+  paste0(
+    PROTEIN_QUANTIFICATION_METHOD,
+    "_essential_sd_distribution"
+  )
 )
 save_plot(
-    p,
-    output_file,
-    width = 16,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
 )
 message(
-    PROTEIN_QUANTIFICATION_METHOD,
-    " essential standard deviation distribution combined figure saved: ",
-    output_file,
-    MSG_FIG_FORMAT
+  PROTEIN_QUANTIFICATION_METHOD,
+  " essential standard deviation distribution combined figure saved: ",
+  output_file,
+  MSG_FIG_FORMAT
 )
 ```
 
@@ -661,47 +661,47 @@ message(
 ```{r exposure-time}
 source("sources/correlation.R")
 treatment_to_exposure_time <- c(
-    "As"   = 10,
-    "Bs"   = 10,
-    "Hyp"  = 240,
-    "Li"   = 10,
-    "Nd"   = 30,
-    "Ns"   = 10,
-    "Oss"  = 10,
-    "Oxs"  = 10,
-    "Sp"   = 241, # Not actual time, but used as value >240 -> >4H
-    "Tm"   = 20
+  "As" = 10,
+  "Bs" = 10,
+  "Hyp" = 240,
+  "Li" = 10,
+  "Nd" = 30,
+  "Ns" = 10,
+  "Oss" = 10,
+  "Oxs" = 10,
+  "Sp" = 241, # Not actual time, but used as value >240 -> >4H
+  "Tm" = 20
 )
 
 print(corr_rna_prot)
 exposure_corr_df <- corr_rna_prot %>%
-    filter(Treatment != "Ctrl") %>%
-    distinct(Species, Treatment, R) %>%
-    mutate(
-        exposure_time = treatment_to_exposure_time[Treatment],
-        exposure_label = factor(
-            EXPOSURE_TIME_LABELS[as.character(exposure_time)],
-            levels = EXPOSURE_TIME_LABELS
-        )
+  filter(Treatment != "Ctrl") %>%
+  distinct(Species, Treatment, R) %>%
+  mutate(
+    exposure_time = treatment_to_exposure_time[Treatment],
+    exposure_label = factor(
+      EXPOSURE_TIME_LABELS[as.character(exposure_time)],
+      levels = EXPOSURE_TIME_LABELS
     )
+  )
 print(exposure_corr_df)
 stats_df <- compute_exposure_correlations(exposure_corr_df)
 print(stats_df)
 label_pos <- build_label_position(exposure_corr_df, stats_df)
 
 p <- build_exposure_plot(
-    df        = exposure_corr_df,
-    label_pos = label_pos
+  df = exposure_corr_df,
+  label_pos = label_pos
 )
 
 print(p)
 output_file <- file.path(OUTPUT_PATH, paste0("correlation_vs_exposure_time"))
 save_plot(
-    p,
-    output_file,
-    width = 12,
-    height = 5,
-    units = "in"
+  p,
+  output_file,
+  width = 12,
+  height = 5,
+  units = "in"
 )
 message("Correlation vs exposure time saved : ", output_file, MSG_FIG_FORMAT)
 ```
@@ -715,10 +715,10 @@ NORMALIZATION_METHOD <- "VSN" # Go to supplementary to run normalization compari
 
 # Single method normalization — returns tidy tibble
 norm_data <- run_normalization(
-    protQ_data,
-    protQ = PROTEIN_QUANTIFICATION_METHOD,
-    method = NORMALIZATION_METHOD,
-    output_path = OUTPUT_PATH
+  protQ_data,
+  protQ = PROTEIN_QUANTIFICATION_METHOD,
+  method = NORMALIZATION_METHOD,
+  output_path = OUTPUT_PATH
 )
 ```
 
@@ -729,29 +729,30 @@ DEG_PVAL_THRESHOLD <- 0.05
 DE_FC_THRESHOLD <- 0.5
 source("sources/read_data.R")
 deg_raw <- map_dfr(rna_files, function(filepath) {
-    species <- tools::file_path_sans_ext(
-        str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+")
-    )
-    message("  Loading DEG data for: ", species)
-    deg_data_sp <- read_deg_data(filepath) %>%
-        mutate(Species = species) %>%
-        dplyr::select(Species, Protein_id, Treatment, log2FC, fdr, max_mean)
+  species <- tools::file_path_sans_ext(
+    str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+")
+  )
+  message("  Loading DEG data for: ", species)
+  deg_data_sp <- read_deg_data(filepath) %>%
+    mutate(Species = species) %>%
+    dplyr::select(Species, Protein_id, Treatment, log2FC, fdr, max_mean)
 }) %>%
-    filter(!is.na(log2FC), !is.na(fdr)) %>%
-    filter(Protein_id %in% common_ids)
+  filter(!is.na(log2FC), !is.na(fdr)) %>%
+  filter(Protein_id %in% common_ids)
 
 print
 
 deg_data <- deg_raw %>%
-    group_by(Species, Treatment) %>%
-    summarise(
-        n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
-        n_total = n(),
-        pct_de = 100 * n_de / n_total,
-        de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
-            abs(log2FC) > DE_FC_THRESHOLD & !is.na(fdr)]),
-        .groups = "drop"
-    )
+  group_by(Species, Treatment) %>%
+  summarise(
+    n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
+    n_total = n(),
+    pct_de = 100 * n_de / n_total,
+    de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
+                               abs(log2FC) > DE_FC_THRESHOLD &
+                               !is.na(fdr)]),
+    .groups = "drop"
+  )
 ```
 
 ```{r compute-DEP}
@@ -761,25 +762,25 @@ DEP_PVAL_THRESHOLD <- 0.05
 species_list <- unique(norm_data$Species)
 
 dep_data <- map_dfr(species_list, function(species) {
-    message("  Running limma DEP for: ", species)
+  message("  Running limma DEP for: ", species)
 
-    sp_data <- norm_data %>%
-        filter(
-            Species == species,
-            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
-            Protein_id %in% common_ids, # add this
-            is.finite(value)
-        )
-
-    prot_expr <- build_expression_matrix(sp_data)
-
-    run_limma_dep(
-        mat            = prot_expr$mat,
-        metadata       = prot_expr$metadata,
-        species        = species,
-        pval_threshold = DEP_PVAL_THRESHOLD,
-        fc_threshold   = DE_FC_THRESHOLD
+  sp_data <- norm_data %>%
+    filter(
+      Species == species,
+      Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+      Protein_id %in% common_ids, # add this
+      is.finite(value)
     )
+
+  prot_expr <- build_expression_matrix(sp_data)
+
+  run_limma_dep(
+    mat = prot_expr$mat,
+    metadata = prot_expr$metadata,
+    species = species,
+    pval_threshold = DEP_PVAL_THRESHOLD,
+    fc_threshold = DE_FC_THRESHOLD
+  )
 })
 ```
 
@@ -787,16 +788,16 @@ dep_data <- map_dfr(species_list, function(species) {
 source("sources/differential_expression.R")
 plots <- plot_de_barplot_all(deg_data, dep_data, OUTPUT_PATH)
 combined <- wrap_plots(plots, nrow = 1) +
-    plot_layout(guides = "collect", axes = "collect_y") &
-    theme(legend.position = "top")
+  plot_layout(guides = "collect", axes = "collect_y") &
+  theme(legend.position = "top")
 
 print(combined)
 
 output_file <- file.path(OUTPUT_PATH, "DEG_DEP_barplot")
 save_plot(
-    plot = combined,
-    filepath = output_file,
-    width = 16, height = 5
+  plot = combined,
+  filepath = output_file,
+  width = 16, height = 5
 )
 message("  Combined plot saved: ", output_file, MSG_FIG_FORMAT)
 ```
@@ -805,22 +806,22 @@ message("  Combined plot saved: ", output_file, MSG_FIG_FORMAT)
 ```{r de-correlation}
 source("sources/differential_expression.R")
 plots <- plot_de_vs_correlation_all(
-    deg_data,
-    dep_data,
-    corr_rna_prot,
-    PROTEIN_QUANTIFICATION_METHOD,
-    OUTPUT_PATH
+  deg_data,
+  dep_data,
+  corr_rna_prot,
+  PROTEIN_QUANTIFICATION_METHOD,
+  OUTPUT_PATH
 )
 combined <- wrap_plots(plots, nrow = 2) +
-    plot_layout(guides = "collect", axes = "collect_x") &
-    theme(legend.position = "right")
+  plot_layout(guides = "collect", axes = "collect_x") &
+  theme(legend.position = "right")
 
 print(combined)
 output_file <- file.path(OUTPUT_PATH, "DE_vs_correlation")
 save_plot(
-    plot = combined,
-    filepath = output_file,
-    width = 16, height = 10
+  plot = combined,
+  filepath = output_file,
+  width = 16, height = 10
 )
 ```
 
@@ -829,81 +830,81 @@ save_plot(
 ```{r discordant-data-generation}
 source("sources/discordant_analyses.R")
 dep_raw <- map_dfr(species_list, function(species) {
-    sp_data <- norm_data %>%
-        filter(
-            Species == species,
-            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
-            Protein_id %in% common_ids,
-            is.finite(value)
-        )
-    prot_expr <- build_expression_matrix(sp_data)
-    extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
+  sp_data <- norm_data %>%
+    filter(
+      Species == species,
+      Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+      Protein_id %in% common_ids,
+      is.finite(value)
+    )
+  prot_expr <- build_expression_matrix(sp_data)
+  extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
 })
 
 discordance_df <- build_discordance_clusters(
-    deg_raw, dep_raw,
-    fc_threshold = DE_FC_THRESHOLD,
-    pval_threshold = DEP_PVAL_THRESHOLD
+  deg_raw, dep_raw,
+  fc_threshold = DE_FC_THRESHOLD,
+  pval_threshold = DEP_PVAL_THRESHOLD
 )
 
 # Save
 write.table(discordance_df,
-    file.path(OUTPUT_PATH, "discordance_clusters.tsv"),
-    sep = "\t", row.names = FALSE, quote = FALSE
+            file.path(OUTPUT_PATH, "discordance_clusters.tsv"),
+            sep = "\t", row.names = FALSE, quote = FALSE
 )
 
 # Summary with discordant and non-discordant counts
 all_proteins <- inner_join(
-    deg_raw %>% distinct(Species, Protein_id),
-    dep_raw %>% distinct(Species, Protein_id),
-    by = c("Species", "Protein_id")
+  deg_raw %>% distinct(Species, Protein_id),
+  dep_raw %>% distinct(Species, Protein_id),
+  by = c("Species", "Protein_id")
 )
 
 discordant_proteins <- discordance_df %>%
-    distinct(Species, Protein_id, cluster)
+  distinct(Species, Protein_id, cluster)
 
 summary_table <- discordant_proteins %>%
-    count(Species, cluster) %>%
-    arrange(Species, cluster) %>%
-    bind_rows(
-        all_proteins %>%
-            anti_join(discordant_proteins, by = c("Species", "Protein_id")) %>%
-            count(Species) %>%
-            mutate(cluster = "Non-discordant")
-    ) %>%
-    arrange(Species, cluster) %>%
-    group_by(Species) %>%
-    mutate(
-        total    = sum(n),
-        pct      = round(100 * n / total, 1)
-    ) %>%
-    ungroup()
+  count(Species, cluster) %>%
+  arrange(Species, cluster) %>%
+  bind_rows(
+    all_proteins %>%
+      anti_join(discordant_proteins, by = c("Species", "Protein_id")) %>%
+      count(Species) %>%
+      mutate(cluster = "Non-discordant")
+  ) %>%
+  arrange(Species, cluster) %>%
+  group_by(Species) %>%
+  mutate(
+    total = sum(n),
+    pct = round(100 * n / total, 1)
+  ) %>%
+  ungroup()
 
 write.table(summary_table, sep = "\t", row.names = FALSE, quote = FALSE)
 ```
 
 ## fold changes of mRNA and protein levels for each of the 10 stress conditions in comparison to control for the three species.
 
-The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors. 
+The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors.
 
 ```{r discordant-scatter}
 source("sources/discordant_analyses.R")
 # Per-species with free limits — saves individual plots
 
 invisible(plot_discordance_scatter(
-    discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
-    save_per_species = TRUE
+  discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
+  save_per_species = TRUE
 ))
 
 # Combined with shared limits
 plots <- plot_discordance_scatter(
-    discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
-    xlim = c(-11, 16), ylim = c(-5, 5)
+  discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
+  xlim = c(-11, 16), ylim = c(-5, 5)
 )
 
 combined <- wrap_plots(plots, nrow = 1) +
-    plot_layout(guides = "collect") &
-    theme(legend.position = "top")
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
 
 print(combined)
 output_file <- file.path(OUTPUT_PATH, "discordance_scatter")
@@ -919,51 +920,67 @@ source("sources/discordant_analyses.R")
 # Per-species
 species_list <- unique(discordance_df$Species)
 invisible(walk(species_list, function(species) {
-    p <- plot_discordance_profiles(discordance_df, OUTPUT_PATH,
-        species_filter = species
-    )
-    save_plot(
-        plot = p,
-        filepath = file.path(OUTPUT_PATH, species, "discordance_profiles"),
-        width = 14, height = 5
-    )
-    message("Discordance profiles saved for: ", species, MSG_FIG_FORMAT)
+  p <- plot_discordance_profiles(discordance_df, OUTPUT_PATH,
+                                 species_filter = species
+  )
+  save_plot(
+    plot = p,
+    filepath = file.path(OUTPUT_PATH, species, "discordance_profiles"),
+    width = 14, height = 5
+  )
+  message("Discordance profiles saved for: ", species, MSG_FIG_FORMAT)
 }))
 
 # Combined all species
 combined <- plot_discordance_profiles(discordance_df, OUTPUT_PATH)
 output_file <- file.path(OUTPUT_PATH, "discordance_profiles")
 save_plot(
-    plot = combined,
-    filepath = output_file,
-    width = 20, height = 10
+  plot = combined,
+  filepath = output_file,
+  width = 20, height = 10
 )
 message("Combined discordance profiles saved: ", output_file, MSG_FIG_FORMAT)
 print(combined)
 ```
 
-## Enrichment 
+## Enrichment
 
 ```{r enrichment-loading}
 source("sources/discordant_analyses.R")
 
 enrichment_results <- run_enrichment_all(
-    discordance_df = discordance_df,
-    pval_cutoff    = 0.01,
-    qval_cutoff    = 0.2,
-    output_path    = OUTPUT_PATH
+  discordance_df = discordance_df,
+  pval_cutoff = 0.01,
+  qval_cutoff = 0.2,
+  output_path = OUTPUT_PATH
 )
 ```
+
+# Discordantly regulated genes are enriched in translation
 
 ```{r enrichment-mapping}
 source("sources/discordant_analyses.R")
 p <- plot_enrichment_dotplot(
-    enrichment_results = enrichment_results,
-    fdr_threshold      = 0.05,
-    top_n              = 12, # limit to top 30 terms per cluster
-    output_path        = OUTPUT_PATH
+  enrichment_results = enrichment_results,
+  fdr_threshold = 0.05,
+  top_n = 12, # limit to top 30 terms per cluster
+  output_path = OUTPUT_PATH
 )
 print(p)
+```
+
+# mRNA-protein level stress-specific stimulon genes under stress[
+
+```{r stimulon-data-generation}
+# Code to generate stimulon specific data
+```
+## Stress specific stimulon genes and all genes mRNA-protein level correlation
+
+```{r stimulon-correlation}
+
+```
+## ORA of osmotic stress-specific mRNA–protein associations across three species.
+```{r ora-analysis}
 ```
 
 # Supplementary figures
@@ -979,14 +996,14 @@ source("sources/normalization.R")
 # Method comparison — generates NormalyzerDE reports and PCA plots
 
 run_normalization_comparison(
-    protQ_data,
-    protQ = PROTEIN_QUANTIFICATION_METHOD,
-    output_path = SUPP_OUTPUT_PATH
+  protQ_data,
+  protQ = PROTEIN_QUANTIFICATION_METHOD,
+  output_path = SUPP_OUTPUT_PATH
 )
 plot_pca_comparison_grid(
-    protQ_data  = protQ_data,
-    norm_dir    = file.path(SUPP_OUTPUT_PATH),
-    output_path = SUPP_OUTPUT_PATH
+  protQ_data = protQ_data,
+  norm_dir = file.path(SUPP_OUTPUT_PATH),
+  output_path = SUPP_OUTPUT_PATH
 )
 ```
 
@@ -996,74 +1013,75 @@ source("sources/differential_expression.R")
 
 # In read-DEG chunk, add after deg_raw is built
 deg_raw_essential <- deg_raw %>%
-    semi_join(essential_df, by = c("Species", "Protein_id"))
+  semi_join(essential_df, by = c("Species", "Protein_id"))
 
 deg_data_essential <- deg_raw_essential %>%
-    group_by(Species, Treatment) %>%
-    summarise(
-        n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
-        n_total = n(),
-        pct_de = 100 * n_de / n_total,
-        de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
-            abs(log2FC) > DE_FC_THRESHOLD & !is.na(fdr)]),
-        .groups = "drop"
-    )
+  group_by(Species, Treatment) %>%
+  summarise(
+    n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
+    n_total = n(),
+    pct_de = 100 * n_de / n_total,
+    de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
+                               abs(log2FC) > DE_FC_THRESHOLD &
+                               !is.na(fdr)]),
+    .groups = "drop"
+  )
 
 # In compute-DEP chunk, add Protein_id filter
 dep_data_essential <- map_dfr(species_list, function(species) {
-    sp_data <- norm_data %>%
-        filter(
-            Species == species,
-            Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
-            Protein_id %in% common_ids,
-            Protein_id %in% essential_df$Protein_id[essential_df$Species == species],
-            is.finite(value)
-        )
-
-    prot_expr <- build_expression_matrix(sp_data)
-
-    run_limma_dep(
-        mat            = prot_expr$mat,
-        metadata       = prot_expr$metadata,
-        species        = species,
-        pval_threshold = DEP_PVAL_THRESHOLD,
-        fc_threshold   = DE_FC_THRESHOLD
+  sp_data <- norm_data %>%
+    filter(
+      Species == species,
+      Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+      Protein_id %in% common_ids,
+      Protein_id %in% essential_df$Protein_id[essential_df$Species == species],
+      is.finite(value)
     )
+
+  prot_expr <- build_expression_matrix(sp_data)
+
+  run_limma_dep(
+    mat = prot_expr$mat,
+    metadata = prot_expr$metadata,
+    species = species,
+    pval_threshold = DEP_PVAL_THRESHOLD,
+    fc_threshold = DE_FC_THRESHOLD
+  )
 })
 
 plots <- plot_de_barplot_all(deg_data_essential, dep_data_essential, SUPP_OUTPUT_PATH, prefix = "Essential")
 combined <- wrap_plots(plots, nrow = 1) +
-    plot_layout(guides = "collect", axes = "collect_y") &
-    theme(legend.position = "top")
+  plot_layout(guides = "collect", axes = "collect_y") &
+  theme(legend.position = "top")
 
 print(combined)
 
 output_file <- file.path(SUPP_OUTPUT_PATH, "Essential_DEG_DEP_barplot")
 save_plot(
-    plot = combined,
-    filepath = output_file,
-    width = 16, height = 5
+  plot = combined,
+  filepath = output_file,
+  width = 16, height = 5
 )
 message("  Combined plot saved: ", output_file, MSG_FIG_FORMAT)
 
 plots <- plot_de_vs_correlation_all(
-    deg_data_essential,
-    dep_data_essential,
-    corr_essential_rna_prot,
-    PROTEIN_QUANTIFICATION_METHOD,
-    SUPP_OUTPUT_PATH,
-    prefix = "essential"
+  deg_data_essential,
+  dep_data_essential,
+  corr_essential_rna_prot,
+  PROTEIN_QUANTIFICATION_METHOD,
+  SUPP_OUTPUT_PATH,
+  prefix = "essential"
 )
 combined <- wrap_plots(plots, nrow = 2) +
-    plot_layout(guides = "collect", axes = "collect_x") &
-    theme(legend.position = "right")
+  plot_layout(guides = "collect", axes = "collect_x") &
+  theme(legend.position = "right")
 
 print(combined)
 output_file <- file.path(SUPP_OUTPUT_PATH, "Essential_DE_vs_correlation")
 save_plot(
-    plot = combined,
-    filepath = output_file,
-    width = 16, height = 10
+  plot = combined,
+  filepath = output_file,
+  width = 16, height = 10
 )
 ```
 
@@ -1072,148 +1090,225 @@ source("sources/discordant_analyses.R")
 # Per-species with free limits — saves individual plots
 
 for (treat in STRESS_TREATMENTS) {
-    filtered_discordance_df <- discordance_df %>%
-        filter(Treatment == treat)
-    filtered_dep_raw <- dep_raw %>%
-        filter(Treatment == treat)
-    filtered_deg_raw <- deg_raw %>%
-        filter(Treatment == treat)
+  filtered_discordance_df <- discordance_df %>%
+    filter(Treatment == treat)
+  filtered_dep_raw <- dep_raw %>%
+    filter(Treatment == treat)
+  filtered_deg_raw <- deg_raw %>%
+    filter(Treatment == treat)
 
-    invisible(
-        plot_discordance_scatter(
-            filtered_discordance_df,
-            filtered_dep_raw,
-            filtered_deg_raw,
-            SUPP_OUTPUT_PATH,
-            prefix = treat,
-            save_per_species = TRUE
-        )
+  invisible(
+    plot_discordance_scatter(
+      filtered_discordance_df,
+      filtered_dep_raw,
+      filtered_deg_raw,
+      SUPP_OUTPUT_PATH,
+      prefix = treat,
+      save_per_species = TRUE
     )
+  )
 
-    # Combined with shared limits
-    plots <- plot_discordance_scatter(
-        filtered_discordance_df,
-        filtered_dep_raw,
-        filtered_deg_raw,
-        SUPP_OUTPUT_PATH,
-        xlim = c(-11, 16), ylim = c(-5, 5)
-    )
+  # Combined with shared limits
+  plots <- plot_discordance_scatter(
+    filtered_discordance_df,
+    filtered_dep_raw,
+    filtered_deg_raw,
+    SUPP_OUTPUT_PATH,
+    xlim = c(-11, 16), ylim = c(-5, 5)
+  )
 
-    combined <- wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") &
-        theme(legend.position = "top")
+  combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "top")
 
-    output_file <- file.path(
-        SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter", sep = "_")
-    )
-    save_plot(combined, output_file, width = 16, height = 5)
+  output_file <- file.path(
+    SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter", sep = "_")
+  )
+  save_plot(combined, output_file, width = 16, height = 5)
 
-    message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
+  message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
 }
 # Collect one combined plot per treatment
 all_treatment_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
-    filtered_discordance_df <- discordance_df %>% filter(Treatment == treat)
-    filtered_dep_raw <- dep_raw %>% filter(Treatment == treat)
-    filtered_deg_raw <- deg_raw %>% filter(Treatment == treat)
+  filtered_discordance_df <- discordance_df %>% filter(Treatment == treat)
+  filtered_dep_raw <- dep_raw %>% filter(Treatment == treat)
+  filtered_deg_raw <- deg_raw %>% filter(Treatment == treat)
 
-    plots <- plot_discordance_scatter(
-        filtered_discordance_df,
-        filtered_dep_raw,
-        filtered_deg_raw,
-        SUPP_OUTPUT_PATH,
-        xlim = c(-11, 16), ylim = c(-5, 5)
+  plots <- plot_discordance_scatter(
+    filtered_discordance_df,
+    filtered_dep_raw,
+    filtered_deg_raw,
+    SUPP_OUTPUT_PATH,
+    xlim = c(-11, 16), ylim = c(-5, 5)
+  )
+
+  # One combined row per treatment with title
+  wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") +
+    plot_annotation(title = treat) &
+    theme(
+      legend.position = "none", # hide per-treatment legends
+      plot.title = element_text(face = "bold", size = 10)
     )
-
-    # One combined row per treatment with title
-    wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") +
-        plot_annotation(title = treat) &
-        theme(
-            legend.position  = "none", # hide per-treatment legends
-            plot.title       = element_text(face = "bold", size = 10)
-        )
 })
 
 # Extract legend from one plot to place in the empty cell
 legend_plot <- plot_discordance_scatter(
-    discordance_df %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
-    dep_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
-    deg_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
-    SUPP_OUTPUT_PATH,
-    xlim = c(-11, 16), ylim = c(-5, 5)
+  discordance_df %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  dep_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  deg_raw %>% filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  SUPP_OUTPUT_PATH,
+  xlim = c(-11, 16), ylim = c(-5, 5)
 )[[1]] +
-    theme(legend.position = "right") +
-    guides(
-        starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
-        fill      = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
-    )
+  theme(legend.position = "right") +
+  guides(
+    starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+    fill = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+  )
 
 # Build 4x3 grid: 10 treatments + 1 legend + 1 empty
 grid_plots <- c(
-    all_treatment_plots,
-    list(cowplot::get_legend(legend_plot) %>% wrap_elements()),
-    list(plot_spacer())
+  all_treatment_plots,
+  list(cowplot::get_legend(legend_plot) %>% wrap_elements()),
+  list(plot_spacer())
 )
 
 # One row per species across all treatments
 walk(sort(unique(discordance_df$Species)), function(species) {
-    species_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
-        filtered_discordance_df <- discordance_df %>% filter(Treatment == treat, Species == species)
-        filtered_dep_raw <- dep_raw %>% filter(Treatment == treat, Species == species)
-        filtered_deg_raw <- deg_raw %>% filter(Treatment == treat, Species == species)
+  species_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
+    filtered_discordance_df <- discordance_df %>% filter(Treatment == treat, Species == species)
+    filtered_dep_raw <- dep_raw %>% filter(Treatment == treat, Species == species)
+    filtered_deg_raw <- deg_raw %>% filter(Treatment == treat, Species == species)
 
-        plots <- plot_discordance_scatter(
-            filtered_discordance_df,
-            filtered_dep_raw,
-            filtered_deg_raw,
-            SUPP_OUTPUT_PATH,
-            xlim = c(-11, 16), ylim = c(-5, 5)
-        )
-
-        plots[[1]] +
-            theme(legend.position = "none") +
-            labs(title = treat) +
-            theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
-    })
-
-    # 4x3 grid with legend in last cell
-    legend_p <- cowplot::get_legend(
-        plots[[1]] +
-            theme(legend.position = "right") +
-            guides(
-                starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
-                fill      = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
-            )
+    plots <- plot_discordance_scatter(
+      filtered_discordance_df,
+      filtered_dep_raw,
+      filtered_deg_raw,
+      SUPP_OUTPUT_PATH,
+      xlim = c(-11, 16), ylim = c(-5, 5)
     )
 
-    combined_species <- wrap_plots(
-        c(species_plots, list(wrap_elements(legend_p), plot_spacer())),
-        ncol = 3
-    ) +
-        plot_annotation(
-            title    = format_species_title(species),
-            theme    = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
-        )
+    plots[[1]] +
+      theme(legend.position = "none") +
+      labs(title = treat) +
+      theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
+  })
 
-    print(combined_species)
-    output_file <- file.path(
-        SUPP_OUTPUT_PATH, species,
-        paste0("all_treatments_discordance_scatter")
+  # 4x3 grid with legend in last cell
+  legend_p <- cowplot::get_legend(
+    plots[[1]] +
+      theme(legend.position = "right") +
+      guides(
+        starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+        fill = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+      )
+  )
+
+  combined_species <- wrap_plots(
+    c(species_plots, list(wrap_elements(legend_p), plot_spacer())),
+    ncol = 3
+  ) +
+    plot_annotation(
+      title = format_species_title(species),
+      theme = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
     )
-    save_plot(combined_species, output_file, width = 18, height = 24)
-    message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
 
-    print(combined_species)
+  print(combined_species)
+  output_file <- file.path(
+    SUPP_OUTPUT_PATH, species,
+    paste0("all_treatments_discordance_scatter")
+  )
+  save_plot(combined_species, output_file, width = 18, height = 24)
+  message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
+
+  print(combined_species)
 })
 ```
 
-```{r full-enrichment-mapping}
+```{r full-enrichment-mapping, fig.height = 24}
 source("sources/discordant_analyses.R")
 p <- plot_enrichment_dotplot(
-    enrichment_results = enrichment_results,
-    fdr_threshold      = 0.05,
-    top_n              = NULL, # limit to top 30 terms per cluster
-    output_path        = OUTPUT_PATH
+  enrichment_results = enrichment_results,
+  fdr_threshold = 0.05,
+  top_n = NULL, # limit to top 30 terms per cluster
+  output_path = SUPP_OUTPUT_PATH
 )
 print(p)
+```
+# Annexes
+
+## Generate DF for MOBILE
+
+```{r generate-mobile-data}
+raw_file <- file.path(OUTPUT_PATH, paste0(PROTEIN_QUANTIFICATION_METHOD, "_data.tsv"))
+raw_data = read.table(
+  raw_file,
+  sep = "\t",
+  header = TRUE
+)
+full_df <- raw_data %>%
+  select(Protein_id, Species, Replicate, Treatment, all_of(PROTEIN_QUANTIFICATION_METHOD)) %>%
+  mutate(sample = paste0(Replicate, "_", Treatment)) %>%
+  select(-Replicate, -Treatment) %>%
+  pivot_wider(names_from = sample, values_from = all_of(PROTEIN_QUANTIFICATION_METHOD)) %>%
+  group_by(Protein_id) %>%
+  mutate(ID = Protein_id) %>%
+  select(-c(Protein_id)) %>%
+  relocate(ID)
+
+mean_df <- raw_data %>%
+  select(Protein_id, Species, Replicate, Treatment, all_of(PROTEIN_QUANTIFICATION_METHOD)) %>%
+  select(-Replicate) %>%
+  pivot_wider(names_from = Treatment, values_from = all_of(PROTEIN_QUANTIFICATION_METHOD), values_fn=mean) %>%
+  mutate(ID = Protein_id) %>%
+  select(-c(Protein_id)) %>%
+  relocate(ID)
+
+full_df_list <- full_df %>%
+    group_by(Species) %>%
+    group_split(.keep = FALSE) %>%
+    setNames(
+        full_df %>%
+            group_by(Species) %>%
+            group_keys() %>%
+            pull(Species)
+    )
+
+mean_df_list <- mean_df %>%
+    group_by(Species) %>%
+    group_split(.keep = FALSE) %>%
+    setNames(
+        mean_df %>%
+            group_by(Species) %>%
+            group_keys() %>%
+            pull(Species)
+    )
+
+sp2abbv <- list(
+  "Salmonella_enterica" = "SE",
+  "Staphylococcus_aureus" = "SA",
+  "Yersinia_pseudotuberculosis" = "YP"
+)
+
+iwalk(full_df_list, function(df, species) {
+  output_file <- file.path("Analyses_iBAQ", paste0("iBAQ_data_", sp2abbv[[species]], ".tsv"))
+  write.table(
+    df,
+    file = output_file,
+    sep = "\t",
+    row.names = FALSE,
+    quote = FALSE
+  )
+})
+
+iwalk(mean_df_list, function(df, species) {
+  output_file <- file.path("Analyses_iBAQ", paste0("iBAQ_data_mean_", sp2abbv[[species]], ".tsv"))
+  write.table(
+    df,
+    file = output_file,
+    sep = "\t",
+    row.names = FALSE,
+    quote = FALSE
+  )
+})
 ```
