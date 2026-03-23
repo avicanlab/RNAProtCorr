@@ -347,13 +347,15 @@ IBAQ_MISS_CLEAVAGE <- 2
 source("sources/protein_quantification.R")
 
 fasta_files <- list.files(PROTEIN_FASTA, pattern = "\\.fa$", full.names = TRUE)
-protein2tryptic <- process_tryptic(
+results <- process_tryptic(
   fasta_paths = fasta_files,
   output_path = OUTPUT_PATH,
   min_peptide_len = MIN_PEPTIDE_LEN,
   max_peptide_len = MAX_PEPTIDE_LEN,
   missed_cleavages = ifelse(PROTEIN_QUANTIFICATION_METHOD == "iBAQ", 0, IBAQ_MISS_CLEAVAGE)
 )
+protein2tryptic <- results$observable_peptides
+all_raw_digests <- results$all_raw_digests
 ```
 ```{r protein-quantification}
 source("sources/protein_quantification.R")
@@ -990,6 +992,60 @@ dir.create(SUPP_OUTPUT_PATH)
 for (species in SPECIES) dir.create(file.path(SUPP_OUTPUT_PATH, species))
 ```
 
+## Protein and peptide lengths
+
+```{r prot-length}
+source("sources/protein_quantification.R")
+
+fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+  sp <- tools::file_path_sans_ext(
+    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+  fa <- Biostrings::readAAStringSet(fp)
+  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+}))
+p1 <- plot_protein_length(fasta_lengths_df)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
+save_plot(
+  plot = p1,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
+
+p2 <- plot_peptide_length(
+  all_raw_digests,
+  min_peptide_len = MIN_PEPTIDE_LEN,
+  max_peptide_len = MAX_PEPTIDE_LEN
+)
+output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
+save_plot(
+  plot = p2,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
+fig <- p1 / p2 +
+  patchwork::plot_annotation(
+    theme = theme_publication() +
+      theme(
+        plot.title = element_text(size = 13, face = "bold"),
+        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+                                     lineheight = 1.4)
+      )
+  ) &
+  theme(plot.background = element_rect(fill = "white", colour = NA))
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
+save_plot(
+  plot = fig,
+  filepath = output_file,
+  width = 16, height = 16
+)
+message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
+print(fig)
+```
+
 ## Normalization
 ```{r normalization-comparison}
 source("sources/normalization.R")
@@ -1259,30 +1315,30 @@ full_df <- raw_data %>%
 mean_df <- raw_data %>%
   select(Protein_id, Species, Replicate, Treatment, all_of(PROTEIN_QUANTIFICATION_METHOD)) %>%
   select(-Replicate) %>%
-  pivot_wider(names_from = Treatment, values_from = all_of(PROTEIN_QUANTIFICATION_METHOD), values_fn=mean) %>%
+  pivot_wider(names_from = Treatment, values_from = all_of(PROTEIN_QUANTIFICATION_METHOD), values_fn = mean) %>%
   mutate(ID = Protein_id) %>%
   select(-c(Protein_id)) %>%
   relocate(ID)
 
 full_df_list <- full_df %>%
-    group_by(Species) %>%
-    group_split(.keep = FALSE) %>%
-    setNames(
-        full_df %>%
-            group_by(Species) %>%
-            group_keys() %>%
-            pull(Species)
-    )
+  group_by(Species) %>%
+  group_split(.keep = FALSE) %>%
+  setNames(
+    full_df %>%
+      group_by(Species) %>%
+      group_keys() %>%
+      pull(Species)
+  )
 
 mean_df_list <- mean_df %>%
-    group_by(Species) %>%
-    group_split(.keep = FALSE) %>%
-    setNames(
-        mean_df %>%
-            group_by(Species) %>%
-            group_keys() %>%
-            pull(Species)
-    )
+  group_by(Species) %>%
+  group_split(.keep = FALSE) %>%
+  setNames(
+    mean_df %>%
+      group_by(Species) %>%
+      group_keys() %>%
+      pull(Species)
+  )
 
 sp2abbv <- list(
   "Salmonella_enterica" = "SE",

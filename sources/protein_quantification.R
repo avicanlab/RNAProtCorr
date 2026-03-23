@@ -19,6 +19,11 @@
 library(Biostrings)
 library(cleaver)
 library(purrr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggdist)       # stat_halfeye / raincloud helpers
+library(patchwork)    # combine plots side-by-side or stacked
 
 # ============================================================================
 # CONFIGURATION
@@ -168,9 +173,353 @@ process_tryptic <- function(fasta_paths, output_path,
     sep = "\t", row.names = FALSE, quote = FALSE
   )
 
-  observable_peptides
+  return(list(all_raw_digests = all_raw_digests, observable_peptides = observable_peptides))
 }
 
+# ── Shared theme ──────────────────────────────────────────────────────────────
+theme_publication <- function(base_size = 11) {
+  theme_classic(base_size = base_size) +
+    theme(
+      text = element_text(family = "sans"),
+      axis.title = element_text(size = base_size, colour = "#2c2c2a"),
+      axis.text = element_text(size = base_size - 1, colour = "#444441"),
+      axis.line = element_line(linewidth = 0.4, colour = "#888780"),
+      axis.ticks = element_line(linewidth = 0.3, colour = "#888780"),
+      panel.grid.major.y = element_line(colour = "#d3d1c7", linewidth = 0.3,
+                                        linetype = "dashed"),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "none",
+      plot.title = element_text(size = base_size + 1, face = "bold",
+                                colour = "#2c2c2a", margin = margin(b = 4)),
+      plot.subtitle = element_text(size = base_size - 1, colour = "#5f5e5a",
+                                   margin = margin(b = 8)),
+      plot.caption = element_text(size = base_size - 2, colour = "#888780",
+                                  hjust = 0, margin = margin(t = 6)),
+      strip.background = element_blank(),
+      strip.text = element_text(size = base_size, face = "bold",
+                                colour = "#2c2c2a"),
+      plot.background = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.margin = margin(12, 16, 12, 12)
+    )
+}
+
+# Colour palette — one tint per species (expand as needed)
+species_colours <- c(
+  "#1D9E75",   # teal-400
+  "#7F77DD",   # purple-400
+  "#D85A30",   # coral-400
+  "#378ADD",   # blue-400
+  "#639922",   # green-400
+  "#BA7517"    # amber-400
+)
+
+# =============================================================================
+# HELPER: derive protein-length data from the FASTA objects already read by
+# process_tryptic.  Call this BEFORE process_tryptic so you still have `fasta`.
+# Alternatively pass `fasta_lengths_df` in directly if already available.
+# -----------------------------------------------------------------------------
+# Expected input:  a tibble with columns  Species  |  protein_length
+#   e.g. built like:
+#     fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+#       sp  <- tools::file_path_sans_ext(
+#                stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+#       fa  <- Biostrings::readAAStringSet(fp)
+#       tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+#     }))
+# =============================================================================
+
+
+# =============================================================================
+# PLOT 1 — Protein length diversity (raincloud)
+# =============================================================================
+plot_protein_length <- function(fasta_lengths_df,
+                                log_scale = TRUE,
+                                point_alpha = 0.25,
+                                point_size = 0.6,
+                                jitter_width = 0.08,
+                                title = NULL) {
+
+  species_lvls <- sort(unique(fasta_lengths_df$Species))
+  n_sp <- length(species_lvls)
+  pal <- setNames(species_colours[seq_len(n_sp)], species_lvls)
+
+  df <- fasta_lengths_df %>%
+    filter(!is.na(protein_length), protein_length > 0) %>%
+    mutate(Species = factor(Species, levels = species_lvls))
+
+  # Median labels for annotation
+  medians <- df %>%
+    group_by(Species) %>%
+    summarise(med = median(protein_length), .groups = "drop")
+
+  p <- ggplot(df, aes(x = Species, y = protein_length, fill = Species,
+                      colour = Species)) +
+
+    # ── Half-violin (right side) ──
+    ggdist::stat_halfeye(
+      aes(fill = Species),
+      adjust = 0.8,
+      width = 0.5,
+      .width = 0,          # suppress credible-interval slab
+      point_colour = NA,
+      alpha = 0.55,
+      justification = -0.25,
+      normalize = "groups"
+    ) +
+
+    # ── Raw points (left side jitter) ──
+    geom_jitter(
+      width = jitter_width,
+      height = 0,
+      size = point_size,
+      alpha = point_alpha
+    ) +
+
+    # ── Boxplot overlay ──
+    geom_boxplot(
+      aes(fill = Species),
+      width = 0.12,
+      outlier.shape = NA,
+      alpha = 0.7,
+      colour = "white",
+      linewidth = 0.5
+    ) +
+
+    # ── Median text annotation ──
+    geom_text(
+      data = medians,
+      aes(x = Species, y = med, label = scales::comma(round(med))),
+      vjust = 0.8,
+      hjust = 1.3,
+      size = 3.5,
+      face = "bold",
+      colour = "white",
+      inherit.aes = FALSE
+    ) +
+
+    scale_fill_manual(values = pal) +
+    scale_colour_manual(values = pal) +
+    scale_y_continuous(
+      labels = scales::comma,
+      trans = if (log_scale) "log10" else "identity",
+      name = if (log_scale) "Protein length (aa, log\u2081\u2080)"
+      else           "Protein length (aa)"
+    ) +
+    coord_flip() +
+    labs(
+      title = title,
+      x = NULL,
+    ) +
+    theme_publication()
+
+  p
+}
+
+
+# =============================================================================
+# PLOT 2 — Peptide size distribution after in-silico digestion
+# =============================================================================
+plot_peptide_length <- function(all_raw_digests,
+                                min_peptide_len = 6,
+                                max_peptide_len = 30) {
+
+  df <- all_raw_digests %>%
+    mutate(
+      pep_len = nchar(peptide),
+      filtered = pep_len >= min_peptide_len & pep_len <= max_peptide_len
+    )
+
+  # Counts for caption
+  n_total <- nrow(df)
+  n_kept <- sum(df$filtered)
+  pct_kept <- round(100 * n_kept / n_total, 1)
+
+  # Truncate x-axis display slightly beyond filter window for readability
+  x_max_disp <- max_peptide_len + 15
+
+  # Per-length count table (all peptides, capped at x_max_disp)
+  counts <- df %>%
+    filter(pep_len <= x_max_disp) %>%
+    count(pep_len, filtered)
+
+  # Shaded filter-window ribbon (full height — will be behind bars)
+  window_df <- data.frame(
+    xmin = min_peptide_len - 0.5,
+    xmax = max_peptide_len + 0.5
+  )
+
+  p <- ggplot(counts, aes(x = pep_len, y = n, fill = filtered)) +
+
+    # ── Filter window band ──
+    geom_rect(
+      data = window_df,
+      aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+      inherit.aes = FALSE,
+      fill = "#E1F5EE",   # teal-50
+      alpha = 0.55
+    ) +
+
+    # ── Histogram bars ──
+    geom_col(
+      aes(fill = filtered),
+      width = 0.85,
+      alpha = 0.85
+    ) +
+
+    # ── Filter window border lines ──
+    geom_vline(xintercept = min_peptide_len - 0.5,
+               colour = "#0F6E56", linewidth = 0.5, linetype = "dashed") +
+    geom_vline(xintercept = max_peptide_len + 0.5,
+               colour = "#0F6E56", linewidth = 0.5, linetype = "dashed") +
+
+    # ── Window label ──
+    annotate(
+      "text",
+      x = (min_peptide_len + max_peptide_len) / 2,
+      y = Inf,
+      label = sprintf("Retained window\n%d\u2013%d aa  (%s%%)",
+                      min_peptide_len, max_peptide_len, pct_kept),
+      vjust = 1.25,
+      size = 3,
+      colour = "#0F6E56",
+      family = "sans"
+    ) +
+
+    scale_fill_manual(
+      values = c("TRUE" = "#1D9E75",   # teal-400  (kept)
+                 "FALSE" = "#B4B2A9"),  # gray-200  (discarded)
+      labels = c("TRUE" = "Retained",
+                 "FALSE" = "Filtered out"),
+      name = NULL
+    ) +
+
+    scale_x_continuous(
+      breaks = c(seq(0, x_max_disp, by = 5)),
+      limits = c(0, x_max_disp + 1),
+      name = "Peptide length (aa)"
+    ) +
+
+    scale_y_continuous(
+      labels = scales::comma,
+      expand = expansion(mult = c(0, 0.12)),
+      name = "Number of peptides"
+    ) +
+
+    labs(
+      title = "Tryptic peptide length distribution",
+      subtitle = sprintf(
+        "In silico digest  \u2022  total = %s peptides  \u2022  %s%% retained after length filter",
+        scales::comma(n_total), pct_kept
+      )
+    ) +
+
+    theme_publication() +
+    theme(
+      legend.position = c(0.82, 0.88),
+      legend.text = element_text(size = 9),
+      legend.key.size = unit(0.55, "lines"),
+      legend.background = element_rect(fill = "white", colour = NA)
+    )
+  p
+}
+
+
+# =============================================================================
+# COMBINED figure (stacked, suitable for a methods section)
+# =============================================================================
+make_ibaq_figure <- function(fasta_lengths_df,
+                             all_raw_digests,
+                             min_peptide_len = 6,
+                             max_peptide_len = 30,
+                             output_file = NULL,
+                             width = 9,
+                             height = 10) {
+
+  p1 <- plot_protein_length(fasta_lengths_df)
+  p2 <- plot_peptide_length(all_raw_digests,
+                            min_peptide_len = min_peptide_len,
+                            max_peptide_len = max_peptide_len)
+
+  fig <- p1 / p2 +
+    patchwork::plot_annotation(
+      title = "Justification for iBAQ normalisation",
+      subtitle = paste0(
+        "Protein length heterogeneity (top) directly determines the number of ",
+        "observable tryptic peptides (bottom),\n",
+        "biasing raw spectral counts toward longer proteins. ",
+        "iBAQ divides intensity by the observable peptide count to remove this bias."
+      ),
+      caption = "In silico trypsin digestion  |  0 missed cleavages  |  observable window 6\u201330 aa",
+      theme = theme_publication() +
+        theme(
+          plot.title = element_text(size = 13, face = "bold"),
+          plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+                                       lineheight = 1.4)
+        )
+    ) &
+    theme(plot.background = element_rect(fill = "white", colour = NA))
+
+  if (!is.null(output_file)) {
+    ggsave(output_file, fig, width = width, height = height, dpi = 300,
+           bg = "white")
+    message("Saved: ", output_file)
+  }
+
+  fig
+}
+
+
+# =============================================================================
+# USAGE EXAMPLE
+# Replace the mock data below with your real objects after running
+# process_tryptic().
+# =============================================================================
+if (FALSE) {
+
+  # ── 1. Build protein-length data frame ──────────────────────────────────────
+  fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+    sp <- tools::file_path_sans_ext(
+      stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+    fa <- Biostrings::readAAStringSet(fp)
+    tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+  }))
+
+  # ── 2. Run digestion (returns observable peptide counts, but we also need   ──
+  #       the raw digest tibble — uncomment the internal all_raw_digests export ──
+  #       in process_tryptic, or rebuild it here) ───────────────────────────────
+  protein2tryptic <- process_tryptic(
+    fasta_paths = fasta_files,
+    output_path = OUTPUT_PATH,
+    min_peptide_len = MIN_PEPTIDE_LEN,
+    max_peptide_len = MAX_PEPTIDE_LEN,
+    missed_cleavages = 0
+  )
+  # If all_raw_digests isn't exported, rebuild quickly:
+  # all_raw_digests <- bind_rows(lapply(fasta_files, function(fp) {
+  #   sp  <- tools::file_path_sans_ext(
+  #              stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+  #   fa  <- Biostrings::readAAStringSet(fp)
+  #   peps <- cleave(fa, enzym = "trypsin", missedCleavages = 0)
+  #   purrr::map_dfr(names(peps), ~tibble::tibble(
+  #     Species    = sp,
+  #     Protein_id = sub(" .*", "", .x),
+  #     peptide    = as.character(peps[[.x]])
+  #   ))
+  # }))
+
+  # ── 3. Render and save ───────────────────────────────────────────────────────
+  fig <- make_ibaq_figure(
+    fasta_lengths_df = fasta_lengths_df,
+    all_raw_digests = all_raw_digests,
+    min_peptide_len = MIN_PEPTIDE_LEN,
+    max_peptide_len = MAX_PEPTIDE_LEN,
+    output_file = file.path(OUTPUT_PATH, "ibaq_justification.pdf")
+  )
+
+  print(fig)
+}
 # ============================================================================
 # QUANTIFICATION
 # ============================================================================
