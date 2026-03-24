@@ -19,11 +19,7 @@
 library(Biostrings)
 library(cleaver)
 library(purrr)
-library(ggplot2)
-library(dplyr)
-library(tidyr)
 library(ggdist)       # stat_halfeye / raincloud helpers
-library(patchwork)    # combine plots side-by-side or stacked
 
 # ============================================================================
 # CONFIGURATION
@@ -215,6 +211,17 @@ species_colours <- c(
   "#BA7517"    # amber-400
 )
 
+# Treatment colour palette — cycles if more than 8 conditions
+treatment_colours <- c(
+  "#1D9E75",  # teal
+  "#7F77DD",  # purple
+  "#D85A30",  # coral
+  "#378ADD",  # blue
+  "#BA7517",  # amber
+  "#639922",  # green
+  "#D4537E",  # pink
+  "#888780"   # gray
+)
 # =============================================================================
 # HELPER: derive protein-length data from the FASTA objects already read by
 # process_tryptic.  Call this BEFORE process_tryptic so you still have `fasta`.
@@ -674,4 +681,161 @@ ibaq_quantification <- function(
       iBAQ_PpB = riBAQ * 1e9
     ) %>%
     ungroup()
+}
+
+# =============================================================================
+# CORE: one scatter panel for a single replicate pair within one condition
+# -----------------------------------------------------------------------------
+# pair_df  : two-column tibble  rep_x | rep_y  (log2 iBAQ, one row per protein)
+# rep_x/y  : replicate labels (character), used for axis titles
+# condition: character label for the strip / subtitle
+# colour   : hex fill for points and regression line
+# =============================================================================
+.one_panel <- function(df_wide, sample_x, sample_y, colour) {
+
+  d <- df_wide %>%
+    select(x = all_of(sample_x), y = all_of(sample_y)) %>%
+    filter(is.finite(x), is.finite(y))
+
+  if (nrow(d) < 3) {
+    return(ggplot() +
+             annotate("text", x = 0.5, y = 0.5,
+                      label = "insufficient data", colour = "#888780") +
+             theme_void())
+  }
+
+  # ── Pearson correlation ───────────────────────────────────────────────────
+  ct    <- cor.test(d$x, d$y, method = "pearson")
+  R_val <- round(ct$estimate, 2)
+  p_val <- ct$p.value
+  p_fmt <- if (p_val < 0.001) "0.00e+00" else sprintf("%.3f", p_val)
+
+  label_txt <- sprintf("Pearson correlation: %.2f\np-value: %s", R_val, p_fmt)
+
+  # ── Axis limits (common, padded) ──────────────────────────────────────────
+  lo <- floor(min(c(d$x, d$y)))
+  hi <- ceiling(max(c(d$x, d$y)))
+
+  # Annotation position — top-left, clear of points
+  ann_x <- lo + 0.03 * (hi - lo)
+  ann_y <- hi - 0.03 * (hi - lo)
+
+  ggplot(d, aes(x = x, y = y)) +
+
+    # Identity diagonal
+    geom_abline(slope = 1, intercept = 0,
+                colour = "#cccccc", linewidth = 0.35, linetype = "solid") +
+
+    # Points
+    geom_point(colour = colour, alpha = 0.35, size = 0.55, shape = 16) +
+
+    # Stats label
+    annotate("text",
+             x = ann_x, y = ann_y,
+             label      = label_txt,
+             hjust      = 0, vjust = 1,
+             size       = 2.4,
+             colour     = "#2c2c2a",
+             lineheight = 1.35,
+             family     = "sans") +
+
+    scale_x_continuous(limits = c(lo, hi),
+                       breaks = scales::pretty_breaks(n = 4)) +
+    scale_y_continuous(limits = c(lo, hi),
+                       breaks = scales::pretty_breaks(n = 4)) +
+
+    coord_fixed() +
+
+    labs(
+      title = sprintf("%s vs %s", sample_x, sample_y),
+      x     = sample_x,
+      y     = sample_y
+    ) +
+    theme_publication(base_size=10)
+}
+
+
+# =============================================================================
+# BUILD: all pairwise panels for one species  →  one PDF
+# -----------------------------------------------------------------------------
+# df           : full data frame filtered to one species
+#                columns: Species, Protein_id, Treatment, Replicate, iBAQ, iBAQ_log2
+# species_name : character, used in file name and figure title
+# output_dir   : directory to write the PDF into
+# colour_map   : named vector treatment → hex colour (auto-generated if NULL)
+# page_ncol    : number of pair-panels per row on each PDF page (default = 3,
+#                one per replicate pair for 3 replicates)
+# width/height : PDF dimensions in inches
+# =============================================================================
+plot_replicate_correlations <- function(df,
+                                        species_name,
+                                        sample_col  = NULL,
+                                        colour_map  = NULL) {
+
+  # ── Build a full sample label if not already a column ─────────────────────
+  if (!is.null(sample_col)) {
+    df <- df %>% rename(.sample = all_of(sample_col))
+  } else {
+    df <- df %>%
+      mutate(.sample = paste0(Treatment, "_", Replicate))
+  }
+
+  treatments <- sort(unique(df$Treatment))
+  n_tr       <- length(treatments)
+
+  # Auto colour map
+  if (is.null(colour_map)) {
+    pal        <- treatment_colours[((seq_len(n_tr) - 1) %% length(treatment_colours)) + 1]
+    colour_map <- setNames(pal, treatments)
+  }
+
+  # ── Pivot to wide: one column per sample label ────────────────────────────
+  wide <- df %>%
+    select(Protein_id, .sample, iBAQ_log2) %>%
+    pivot_wider(names_from  = .sample,
+                values_from = iBAQ_log2,
+                values_fn   = mean)   # collapse duplicates if any
+
+  # ── Build panel grid: treatments (rows) × pairs (cols) ───────────────────
+  all_rows <- map(treatments, function(trt) {
+
+    trt_df  <- df %>% filter(Treatment == trt)
+    samples <- sort(unique(trt_df$.sample))
+
+    if (length(samples) < 2) {
+      message("  Skipping ", trt, ": fewer than 2 replicates.")
+      return(NULL)
+    }
+
+    pairs <- combn(samples, 2, simplify = FALSE)
+
+    panels <- map(pairs, function(pr) {
+      .one_panel(wide, pr[1], pr[2], colour_map[[trt]])
+    })
+
+    # Force exactly 3 columns (one per pair for 3 replicates)
+    wrap_plots(panels, ncol = 3)
+  })
+
+  all_rows <- compact(all_rows)
+
+  if (length(all_rows) == 0) {
+    warning("No panels generated for: ", species_name)
+    return(invisible(NULL))
+  }
+
+  # ── Assemble full figure (treatments stacked) ─────────────────────────────
+  fig <- wrap_plots(all_rows, ncol = 2) +
+    plot_annotation(
+      title   = species_name,
+      caption = "log\u2082(iBAQ)  \u2022  Pearson correlation  \u2022  identity line shown",
+      theme   = theme(
+        plot.title      = element_text(size = 11, face = "bold", colour = "#2c2c2a",
+                                       family = "sans"),
+        plot.caption    = element_text(size = 7,  colour = "#888780", family = "sans"),
+        plot.background = element_rect(fill = "white", colour = NA)
+      )
+    )
+
+fig
 }

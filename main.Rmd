@@ -3,13 +3,13 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-rmdformats::downcute:
-code_folding: hide
-self_contained: true
-thumbnails: false
-lightbox: true
+  rmdformats::downcute:
+    code_folding: hide
+    self_contained: true
+    thumbnails: false
+    lightbox: trues
 pkgdown:
-as_is: true
+  as_is: true
 ---
 
 
@@ -28,8 +28,9 @@ knitr::opts_chunk$set(
 library(fs)
 library(purrr)
 library(readxl)
-library(tidyverse)
 library(patchwork)
+library(stringr)
+library(tidyverse)
 library(limma)
 
 # Load sources functions
@@ -1045,6 +1046,49 @@ save_plot(
 message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
 print(fig)
 ```
+
+## Pairwise comparison of log2-transformed protein expression value (iBAQ) for each of the three replicates per condition.
+
+Pearson correlation coefficient (R) and student-T test
+
+```{r pairwise-comparison}
+source("sources/protein_quantification.R")
+# Guard: warn if log2_iBAQ has unexpected -Inf (zero iBAQ rows)
+n_inf <- sum(is.infinite(protQ_data$iBAQ_log2))
+if (n_inf > 0)
+  message(sprintf(
+    "Note: %d rows have -Inf log2_iBAQ (zero iBAQ). ",
+    n_inf
+  ), "These are excluded per scatter panel.")
+
+species_list <- sort(unique(protQ_data$Species))
+message(sprintf("Found %d species: %s",
+                length(species_list),
+                paste(species_list, collapse = ", ")))
+
+walk(species_list, function(sp) {
+  message("Process pairwise comparison for ", sp)
+  sp_df <- protQ_data %>% filter(Species == sp)
+  p <- plot_replicate_correlations(
+    df = sp_df,
+    species_name = sp
+  )
+  print(p)
+  output_file <- file.path(SUPP_OUTPUT_PATH, sp, "replicate_correlation")
+  save_plot(
+    plot = p,
+    filepath = output_file,
+    width = 16, height = 16
+  )
+  message(" Pairwise comparison saved: ", output_file, MSG_FIG_FORMAT)
+
+})
+```
+### Salmonella enterica
+
+### Staphylococcus aureus
+
+### Yersinia pseudotuberculosis
 
 ## Normalization
 ```{r normalization-comparison}
