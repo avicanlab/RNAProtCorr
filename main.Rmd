@@ -3,11 +3,11 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-  rmdformats::downcute:
-    code_folding: hide
-    self_contained: true
-    thumbnails: false
-    lightbox: trues
+    rmdformats::downcute:
+        code_folding: hide
+        self_contained: true
+        thumbnails: false
+        lightbox: true
 pkgdown:
   as_is: true
 ---
@@ -154,6 +154,16 @@ tpm_data <- map_dfr(rna_files, function(rna_file) {
     filter(!is.na(Protein_id), !is.na(TPM)) %>%
     mutate(Species = species)
 })
+filtered_tpm <- tpm_data %>%
+  group_by(Protein_id) %>%
+  mutate(TPM_sum = sum(TPM)) %>%
+  filter(TPM_sum == 0)
+
+message(
+  "Filtered ", nrow(filtered_tpm), "gene with TPM = 0 for all treatment & Replicate"
+)
+
+tpm_data <- tpm_data %>% filter_out(Protein_id %in% filtered_tpm$Protein_id)
 ```
 
 ```{r load-prot, results='hide'}
@@ -743,8 +753,6 @@ deg_raw <- map_dfr(rna_files, function(filepath) {
   filter(!is.na(log2FC), !is.na(fdr)) %>%
   filter(Protein_id %in% common_ids)
 
-print
-
 deg_data <- deg_raw %>%
   group_by(Species, Treatment) %>%
   summarise(
@@ -830,45 +838,31 @@ save_plot(
 
 # Identification of genes whose mRNA-protein levels are discordantly regulated under stress conditions
 
-```{r discordant-data-generation}
+```{r zscore-data-generation}
 source("sources/discordant_analyses.R")
-dep_raw <- map_dfr(species_list, function(species) {
-  sp_data <- norm_data %>%
-    filter(
-      Species == species,
-      Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
-      Protein_id %in% common_ids,
-      is.finite(value)
-    )
-  prot_expr <- build_expression_matrix(sp_data)
-  extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
-})
+filtered_protQ <- protQ_data %>%
+  select(Species, Protein_id, Treatment, all_of(protQ_meanlog2))
 
-discordance_df <- build_discordance_clusters(
-  deg_raw, dep_raw,
-  fc_threshold = DE_FC_THRESHOLD,
-  pval_threshold = DEP_PVAL_THRESHOLD
+zscore_tpm_df <- zscore_transform(tpm_log2_data, "mean_log2_TPM")
+zscore_protQ_df <- zscore_transform(
+  filtered_protQ,
+  protQ_meanlog2
 )
 
-# Save
-write.table(discordance_df,
-            file.path(OUTPUT_PATH, "discordance_clusters.tsv"),
-            sep = "\t", row.names = FALSE, quote = FALSE
+discordance_df <- build_discordance_clusters_zscore(
+  deg_zscore = zscore_tpm_df,
+  dep_zscore = zscore_protQ_df,
+  z_threshold = 1.96
 )
+# Summary table
+all_proteins <- inner_join(zscore_tpm_df %>% distinct(Species, Protein_id),
+                           zscore_protQ_df %>% distinct(Species, Protein_id),
+                           by = c("Species", "Protein_id"))
 
-# Summary with discordant and non-discordant counts
-all_proteins <- inner_join(
-  deg_raw %>% distinct(Species, Protein_id),
-  dep_raw %>% distinct(Species, Protein_id),
-  by = c("Species", "Protein_id")
-)
-
-discordant_proteins <- discordance_df %>%
-  distinct(Species, Protein_id, cluster)
+discordant_proteins <- discordance_df %>% distinct(Species, Protein_id, cluster)
 
 summary_table <- discordant_proteins %>%
   count(Species, cluster) %>%
-  arrange(Species, cluster) %>%
   bind_rows(
     all_proteins %>%
       anti_join(discordant_proteins, by = c("Species", "Protein_id")) %>%
@@ -877,77 +871,45 @@ summary_table <- discordant_proteins %>%
   ) %>%
   arrange(Species, cluster) %>%
   group_by(Species) %>%
-  mutate(
-    total = sum(n),
-    pct = round(100 * n / total, 1)
-  ) %>%
+  mutate(total = sum(n), pct = round(100 * n / total, 1)) %>%
   ungroup()
 
-write.table(summary_table, sep = "\t", row.names = FALSE, quote = FALSE)
+write.table(summary_table, file.path(OUTPUT_PATH, "discordance_summary.tsv"),
+            sep = "\t", row.names = FALSE, quote = FALSE)
+print(summary_table)
 ```
-
-## fold changes of mRNA and protein levels for each of the 10 stress conditions in comparison to control for the three species.
-
-The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors.
-
-```{r discordant-scatter}
+```{r zscore-scatter-plot}
 source("sources/discordant_analyses.R")
-# Per-species with free limits — saves individual plots
-
-invisible(plot_discordance_scatter(
-  discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
-  save_per_species = TRUE
+invisible(plot_discordance_scatter_zscore(
+  discordance_df, zscore_protQ_df, zscore_tpm_df,
+  OUTPUT_PATH, save_per_species = TRUE
 ))
 
-# Combined with shared limits
-plots <- plot_discordance_scatter(
-  discordance_df, dep_raw, deg_raw, OUTPUT_PATH,
-  xlim = c(-11, 16), ylim = c(-5, 5)
-)
-
-combined <- wrap_plots(plots, nrow = 1) +
-  plot_layout(guides = "collect") &
+combined_scatter <- wrap_plots(
+  plot_discordance_scatter_zscore(
+    discordance_df, zscore_protQ_df, zscore_tpm_df,
+    OUTPUT_PATH, zlim = c(-5, 5)
+  ), nrow = 1) +
+  plot_layout(guides = "collect", axes = "collect") &
   theme(legend.position = "top")
 
-print(combined)
-output_file <- file.path(OUTPUT_PATH, "discordance_scatter")
-save_plot(combined, output_file, width = 16, height = 5)
-
-message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
+print(combined_scatter)
+save_plot(combined_scatter, file.path(OUTPUT_PATH, "discordance_scatter_zscore"), width = 16, height = 5)
 ```
-## Profile
 
-```{r profile}
+```{r zscore-profiles}
 source("sources/discordant_analyses.R")
-
-# Per-species
 species_list <- unique(discordance_df$Species)
 invisible(walk(species_list, function(species) {
-  p <- plot_discordance_profiles(discordance_df, OUTPUT_PATH,
-                                 species_filter = species
-  )
-  save_plot(
-    plot = p,
-    filepath = file.path(OUTPUT_PATH, species, "discordance_profiles"),
-    width = 14, height = 5
-  )
-  message("Discordance profiles saved for: ", species, MSG_FIG_FORMAT)
+  p <- plot_discordance_profiles_zscore(discordance_df, OUTPUT_PATH, species_filter = species)
+  save_plot(p, file.path(OUTPUT_PATH, species, "discordance_profiles_zscore"), width = 14, height = 5)
+  message("Z-score profiles saved for: ", species, MSG_FIG_FORMAT)
 }))
 
-# Combined all species
-combined <- plot_discordance_profiles(discordance_df, OUTPUT_PATH)
-output_file <- file.path(OUTPUT_PATH, "discordance_profiles")
-save_plot(
-  plot = combined,
-  filepath = output_file,
-  width = 20, height = 10
-)
-message("Combined discordance profiles saved: ", output_file, MSG_FIG_FORMAT)
-print(combined)
+combined_profiles <- plot_discordance_profiles_zscore(discordance_df, OUTPUT_PATH)
+save_plot(combined_profiles, file.path(OUTPUT_PATH, "discordance_profiles_zscore"), width = 20, height = 10)
+print(combined_profiles)
 ```
-
-## Enrichment
-
 ```{r enrichment-loading}
 source("sources/discordant_analyses.R")
 
@@ -971,7 +933,6 @@ p <- plot_enrichment_dotplot(
 )
 print(p)
 ```
-
 # mRNA-protein level stress-specific stimulon genes under stress[
 
 ```{r stimulon-data-generation}
@@ -1051,7 +1012,7 @@ print(fig)
 
 Pearson correlation coefficient (R) and student-T test
 
-```{r pairwise-comparison}
+```{r pairwise-comparison, fig.height = 24}
 source("sources/protein_quantification.R")
 # Guard: warn if log2_iBAQ has unexpected -Inf (zero iBAQ rows)
 n_inf <- sum(is.infinite(protQ_data$iBAQ_log2))
@@ -1078,7 +1039,7 @@ walk(species_list, function(sp) {
   save_plot(
     plot = p,
     filepath = output_file,
-    width = 16, height = 16
+    width = 16, height = 24
   )
   message(" Pairwise comparison saved: ", output_file, MSG_FIG_FORMAT)
 
@@ -1184,8 +1145,284 @@ save_plot(
   width = 16, height = 10
 )
 ```
-
+## Discordant z-score
 ```{r discordant-scatter-per-treatment}
+source("sources/discordant_analyses.R")
+# Per-species with free limits — saves individual plots
+
+for (treat in STRESS_TREATMENTS) {
+  filtered_discordance_df <- discordance_df %>%
+    filter(Treatment == treat)
+  filtered_zscore_prot <- zscore_protQ_df %>%
+    filter(Treatment == treat)
+  filtered_zscore_rna <- zscore_tpm_df %>%
+    filter(Treatment == treat)
+
+  invisible(
+    plot_discordance_scatter_zscore(
+      filtered_discordance_df,
+      filtered_zscore_prot,
+      filtered_zscore_rna,
+      SUPP_OUTPUT_PATH,
+      prefix = treat,
+      save_per_species = TRUE
+    )
+  )
+
+  # Combined with shared limits
+  plots <- plot_discordance_scatter_zscore(
+    filtered_discordance_df,
+    filtered_zscore_prot,
+    filtered_zscore_rna,
+    SUPP_OUTPUT_PATH
+  )
+
+  combined <- wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "top")
+
+  output_file <- file.path(
+    SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter_zscore", sep = "_")
+  )
+  save_plot(combined, output_file, width = 16, height = 5)
+
+  message("Combined discordance scatter saved", output_file, MSG_FIG_FORMAT)
+}
+# Collect one combined plot per treatment
+all_treatment_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
+  filtered_discordance_df <- discordance_df %>%
+    filter(Treatment == treat)
+  filtered_zscore_prot <- zscore_protQ_df %>%
+    filter(Treatment == treat)
+  filtered_zscore_rna <- zscore_tpm_df %>%
+    filter(Treatment == treat)
+
+  plots <- plot_discordance_scatter_zscore(
+    filtered_discordance_df,
+    filtered_zscore_prot,
+    filtered_zscore_rna,
+    SUPP_OUTPUT_PATH
+  )
+
+  # One combined row per treatment with title
+  wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") +
+    plot_annotation(title = treat) &
+    theme(
+      legend.position = "none", # hide per-treatment legends
+      plot.title = element_text(face = "bold", size = 10)
+    )
+})
+
+# Extract legend from one plot to place in the empty cell
+legend_plot <- plot_discordance_scatter_zscore(
+  filtered_discordance_df <- discordance_df %>%
+    filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  filtered_zscore_prot <- zscore_protQ_df %>%
+    filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  filtered_zscore_rna <- zscore_tpm_df %>%
+    filter(Treatment == STRESS_TREATMENTS_PROT[1]),
+  SUPP_OUTPUT_PATH
+)[[1]] +
+  theme(legend.position = "right") +
+  guides(
+    starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+    fill = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+  )
+
+# Build 4x3 grid: 10 treatments + 1 legend + 1 empty
+grid_plots <- c(
+  all_treatment_plots,
+  list(cowplot::get_legend(legend_plot) %>% wrap_elements()),
+  list(plot_spacer())
+)
+
+# One row per species across all treatments
+walk(sort(unique(discordance_df$Species)), function(species) {
+  species_plots <- map(STRESS_TREATMENTS_PROT, function(treat) {
+    filtered_discordance_df <- discordance_df %>%
+      filter(Treatment == treat, Species == species)
+    filtered_zscore_prot <- zscore_protQ_df %>%
+      filter(Treatment == treat, Species == species)
+    filtered_zscore_rna <- zscore_tpm_df %>%
+      filter(Treatment == treat, Species == species)
+
+    plots <- plot_discordance_scatter_zscore(
+      filtered_discordance_df,
+      filtered_zscore_prot,
+      filtered_zscore_rna,
+      SUPP_OUTPUT_PATH
+    )
+
+    plots[[1]] +
+      theme(legend.position = "none") +
+      labs(title = treat) +
+      theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
+  })
+
+  # 4x3 grid with legend in last cell
+  legend_p <- cowplot::get_legend(
+    plots[[1]] +
+      theme(legend.position = "right") +
+      guides(
+        starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+        fill = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
+      )
+  )
+
+  combined_species <- wrap_plots(
+    c(species_plots, list(wrap_elements(legend_p), plot_spacer())),
+    ncol = 3
+  ) +
+    plot_annotation(
+      title = format_species_title(species),
+      theme = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
+    )
+
+  print(combined_species)
+  output_file <- file.path(
+    SUPP_OUTPUT_PATH, species,
+    paste0("all_treatments_discordance_scatter")
+  )
+  save_plot(combined_species, output_file, width = 18, height = 24)
+  message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
+
+  print(combined_species)
+})
+```
+
+```{r full-enrichment-mapping, fig.height = 24}
+source("sources/discordant_analyses.R")
+p <- plot_enrichment_dotplot(
+  enrichment_results = enrichment_results,
+  fdr_threshold = 0.05,
+  top_n = NULL, # limit to top 30 terms per cluster
+  output_path = SUPP_OUTPUT_PATH
+)
+print(p)
+```
+## Discordant Log Fold Change
+```{r discordant-data-generation-logFC}
+source("sources/discordant_analyses.R")
+dep_raw <- map_dfr(species_list, function(species) {
+  sp_data <- norm_data %>%
+    filter(Species == species, Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+           Protein_id %in% common_ids, is.finite(value))
+  prot_expr <- build_expression_matrix(sp_data)
+  extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
+})
+
+discordance_df <- build_discordance_clusters(deg_raw, dep_raw,
+                                             fc_threshold = DE_FC_THRESHOLD, pval_threshold = DEP_PVAL_THRESHOLD)
+
+write.table(discordance_df,
+            file.path(SUPP_OUTPUT_PATH, "discordance_clusters_logFC.tsv"),
+            sep = "\t", row.names = FALSE, quote = FALSE)
+
+# Summary table
+all_proteins <- inner_join(deg_raw %>% distinct(Species, Protein_id),
+                           dep_raw %>% distinct(Species, Protein_id),
+                           by = c("Species", "Protein_id"))
+discordant_proteins <- discordance_df %>% distinct(Species, Protein_id, cluster)
+
+summary_table <- discordant_proteins %>%
+  count(Species, cluster) %>%
+  bind_rows(
+    all_proteins %>%
+      anti_join(discordant_proteins, by = c("Species", "Protein_id")) %>%
+      count(Species) %>%
+      mutate(cluster = "Non-discordant")
+  ) %>%
+  arrange(Species, cluster) %>%
+  group_by(Species) %>%
+  mutate(total = sum(n), pct = round(100 * n / total, 1)) %>%
+  ungroup()
+
+write.table(summary_table, file.path(SUPP_OUTPUT_PATH, "discordance_logFC_summary.tsv"),
+            sep = "\t", row.names = FALSE, quote = FALSE)
+print(summary_table)
+```
+
+## fold changes of mRNA and protein levels for each of the 10 stress conditions in comparison to control for the three species.
+
+The 6 gene clusters whose mRNA and protein level have different discordant regulation patterns are shown in different colors.
+
+```{r discordant-scatter-logFC}
+source("sources/discordant_analyses.R")
+# Per-species with free limits — saves individual plots
+
+invisible(plot_discordance_scatter(discordance_df, dep_raw, deg_raw,
+                                   SUPP_OUTPUT_PATH, save_per_species = TRUE))
+
+combined <- wrap_plots(
+  plot_discordance_scatter(discordance_df, dep_raw, deg_raw,
+                           SUPP_OUTPUT_PATH, xlim = c(-11, 16), ylim = c(-5, 5)),
+  nrow = 1) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+print(combined)
+save_plot(combined, file.path(SUPP_OUTPUT_PATH, "discordance_scatter_logFC"), width = 16, height = 5)
+message("Combined discordance scatter saved: ", file.path(SUPP_OUTPUT_PATH, "discordance_scatter"), MSG_FIG_FORMAT)
+```
+## Profile
+
+```{r profile-logFC}
+source("sources/discordant_analyses.R")
+
+# Per-species
+species_list <- unique(discordance_df$Species)
+invisible(walk(species_list, function(species) {
+  p <- plot_discordance_profiles(discordance_df, SUPP_OUTPUT_PATH,
+                                 species_filter = species
+  )
+  save_plot(
+    plot = p,
+    filepath = file.path(SUPP_OUTPUT_PATH, species, "discordance_profiles_logFC"),
+    width = 14, height = 5
+  )
+  message("Discordance profiles saved for: ", species, MSG_FIG_FORMAT)
+}))
+
+# Combined all species
+combined <- plot_discordance_profiles(discordance_df, SUPP_OUTPUT_PATH)
+output_file <- file.path(SUPP_OUTPUT_PATH, "discordance_profiles_logFC")
+save_plot(
+  plot = combined,
+  filepath = output_file,
+  width = 20, height = 10
+)
+message("Combined discordance profiles saved: ", output_file, MSG_FIG_FORMAT)
+print(combined)
+```
+
+## Enrichment
+
+```{r enrichment-loading-logFC}
+source("sources/discordant_analyses.R")
+
+enrichment_results <- run_enrichment_all(
+  discordance_df = discordance_df,
+  pval_cutoff = 0.01,
+  qval_cutoff = 0.2,
+  output_path = SUPP_OUTPUT_PATH
+)
+```
+
+# Discordantly regulated genes are enriched in translation
+
+```{r enrichment-mapping-logFC}
+#TODO make the dotplot with suffix for logFC and zscore
+source("sources/discordant_analyses.R")
+p <- plot_enrichment_dotplot(
+  enrichment_results = enrichment_results,
+  fdr_threshold = 0.05,
+  top_n = 12, # limit to top 30 terms per cluster
+  output_path = SUPP_OUTPUT_PATH
+)
+print(p)
+```
+```{r discordant-scatter-per-treatment-logFC}
 source("sources/discordant_analyses.R")
 # Per-species with free limits — saves individual plots
 
@@ -1222,7 +1459,7 @@ for (treat in STRESS_TREATMENTS) {
     theme(legend.position = "top")
 
   output_file <- file.path(
-    SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter", sep = "_")
+    SUPP_OUTPUT_PATH, paste(treat, "discordance_scatter_logFC", sep = "_")
   )
   save_plot(combined, output_file, width = 16, height = 5)
 
@@ -1316,7 +1553,7 @@ walk(sort(unique(discordance_df$Species)), function(species) {
   print(combined_species)
   output_file <- file.path(
     SUPP_OUTPUT_PATH, species,
-    paste0("all_treatments_discordance_scatter")
+    paste0("all_treatments_discordance_scatter_logFC")
   )
   save_plot(combined_species, output_file, width = 18, height = 24)
   message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
@@ -1325,7 +1562,7 @@ walk(sort(unique(discordance_df$Species)), function(species) {
 })
 ```
 
-```{r full-enrichment-mapping, fig.height = 24}
+```{r full-enrichment-mapping-logFC, fig.height = 24}
 source("sources/discordant_analyses.R")
 p <- plot_enrichment_dotplot(
   enrichment_results = enrichment_results,
