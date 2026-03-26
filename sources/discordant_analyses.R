@@ -870,3 +870,50 @@ plot_enrichment_dotplot <- function(
 
   invisible(final)
 }
+
+# Filter all three dataframes to one treatment (and optionally one species)
+filter_treatment <- function(treat, species = NULL) {
+    list(
+        discordance = discordance_df %>%
+            filter(Treatment == treat,
+                   if (!is.null(species)) Species == species else TRUE),
+        prot        = zscore_protQ_df %>%
+            filter(Treatment == treat,
+                   if (!is.null(species)) Species == species else TRUE),
+        rna         = zscore_tpm_df %>%
+            filter(Treatment == treat,
+                   if (!is.null(species)) Species == species else TRUE)
+    )
+}
+
+# Build one combined-species plot for one treatment (no legend, title = treat)
+make_treatment_row <- function(treat, show_legend = FALSE) {
+    d <- filter_treatment(treat)
+    plots <- plot_discordance_scatter_zscore(
+        d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
+    )
+    wrap_plots(plots, nrow = 1) +
+        plot_layout(guides = "collect") +
+        plot_annotation(
+            title = treat,
+            theme = theme(plot.title = element_text(face = "bold", size = 10))
+        ) &
+        theme(legend.position = if (show_legend) "right" else "none")
+}
+
+# Extract cluster-fill legend only (no starshape) from a plot
+extract_cluster_legend <- function(treat) {
+    d <- filter_treatment(treat)
+    p <- plot_discordance_scatter_zscore(
+        d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
+    )[[1]] +
+        theme(legend.position = "right") +
+        guides(
+            starshape = "none",   # remove shape legend
+            fill      = guide_legend(
+                override.aes = list(starshape = 15, colour = "white",
+                                    size = 3, alpha = 1)
+            )
+        )
+    cowplot::get_legend(p) %>% wrap_elements()
+}

@@ -43,7 +43,7 @@ plot_essential_distribution <- function(
 
     x_label <- bquote(
         .(ifelse(x_lab == "TPM", "mRNA", "Protein")) ~
-            "- Mean" ~ .(x_lab) ~ (Log[2])
+            "- Mean " ~ .(x_lab) ~ (Log[2])
     )
 
     plots <- condition_df %>%
@@ -139,8 +139,8 @@ plot_essential_vs_all_correlation <- function(
                     sp_df$Treatment
                 )) +
                 coord_cartesian(
-                    xlim = c(0.4, 1),
-                    ylim = c(0.4, 1)
+                    xlim = c(0.2, 1),
+                    ylim = c(0.2, 1)
                 ) +
                 labs(
                     title = title_sp,

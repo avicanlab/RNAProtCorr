@@ -673,8 +673,9 @@ ibaq_quantification <- function(
     mutate(iBAQ = iBAQ_total * (channel_intensity / channel_sum)) %>%
     group_by(Species, Protein_id, Treatment) %>%
     mutate(
-      iBAQ_log2 = log2(iBAQ),
+      iBAQ_log2 = log2(iBAQ + 1),
       iBAQ_meanlog2 = mean(iBAQ_log2, na.rm = TRUE),
+      # iBAQ_meanlog2 = mean(iBAQ_log2[is.finite(iBAQ_log2)], na.rm = TRUE),
       iBAQ_log2ratio = log2(iBAQ) - iBAQ_meanlog2,
       riBAQ = iBAQ / sum(iBAQ, na.rm = TRUE),
       iBAQ_log = 10 + log10(riBAQ),
