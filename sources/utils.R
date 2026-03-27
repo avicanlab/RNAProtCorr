@@ -101,6 +101,7 @@ save_plot <- function(
         )
         message("Saved: ", path)
     })
+    invisible(NULL)
 }
 
 
@@ -217,3 +218,54 @@ format_species_title <- function(species, linebreak = FALSE) {
         bquote(italic(.(display)))
     }
 }
+
+# ── Shared theme ──────────────────────────────────────────────────────────────
+theme_publication <- function(base_size = 11) {
+  theme_classic(base_size = base_size) +
+    theme(
+      text = element_text(family = "sans"),
+      axis.title = element_text(size = base_size, colour = "#2c2c2a"),
+      axis.text = element_text(size = base_size - 1, colour = "#444441"),
+      axis.line = element_line(linewidth = 0.4, colour = "#888780"),
+      axis.ticks = element_line(linewidth = 0.3, colour = "#888780"),
+      panel.grid.major.y = element_line(colour = "#d3d1c7", linewidth = 0.3,
+                                        linetype = "dashed"),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "none",
+      plot.title = element_text(size = base_size + 1, face = "bold",
+                                colour = "#2c2c2a", margin = margin(b = 4)),
+      plot.subtitle = element_text(size = base_size - 1, colour = "#5f5e5a",
+                                   margin = margin(b = 8)),
+      plot.caption = element_text(size = base_size - 2, colour = "#888780",
+                                  hjust = 0, margin = margin(t = 6)),
+      strip.background = element_blank(),
+      strip.text = element_text(size = base_size, face = "bold",
+                                colour = "#2c2c2a"),
+      plot.background = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      plot.margin = margin(12, 16, 12, 12)
+    )
+}
+
+# Colour palette — one tint per species (expand as needed)
+species_colours <- c(
+  "#1D9E75",   # teal-400
+  "#7F77DD",   # purple-400
+  "#D85A30",   # coral-400
+  "#378ADD",   # blue-400
+  "#639922",   # green-400
+  "#BA7517"    # amber-400
+)
+
+# Treatment colour palette — cycles if more than 8 conditions
+treatment_colours <- c(
+  "#1D9E75",  # teal
+  "#7F77DD",  # purple
+  "#D85A30",  # coral
+  "#378ADD",  # blue
+  "#BA7517",  # amber
+  "#639922",  # green
+  "#D4537E",  # pink
+  "#888780"   # gray
+)

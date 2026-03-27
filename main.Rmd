@@ -3,13 +3,13 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-    rmdformats::downcute:
-        code_folding: hide
-        self_contained: true
-        thumbnails: false
-        lightbox: true
+rmdformats::downcute:
+code_folding: hide
+self_contained: true
+thumbnails: false
+lightbox: true
 pkgdown:
-  as_is: true
+as_is: true
 ---
 
 
@@ -18,8 +18,8 @@ knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE,
   error = FALSE,
-  fig.height = 8,
-  fig.width = 16
+  fig.height = 6,
+  fig.width = 12
 )
 ```
 
@@ -138,7 +138,7 @@ list2env(c(dirs, files), envir = .GlobalEnv)
 ```
 
 # Data loading and processing
-```{r load-tpm, results='hide', message=TRUE}
+```{r load-tpm, results='hide'}
 source("sources/read_data.R")
 # Load RNA tpm data
 rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
@@ -523,7 +523,7 @@ save_plot(
   p,
   output_file,
   width = 16,
-  height = 5,
+  height = 4,
   units = "in"
 )
 message("TPM essential distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -551,7 +551,7 @@ save_plot(
   p,
   output_file,
   width = 16,
-  height = 5,
+  height = 4,
   units = "in"
 )
 message(
@@ -627,7 +627,7 @@ save_plot(
   p,
   output_file,
   width = 16,
-  height = 5,
+  height = 4,
   units = "in"
 )
 message("TPM essential standard deviation distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -656,7 +656,7 @@ save_plot(
   p,
   output_file,
   width = 16,
-  height = 5,
+  height = 4,
   units = "in"
 )
 message(
@@ -852,7 +852,7 @@ zscore_protQ_df <- zscore_transform(
 discordance_df <- build_discordance_clusters_zscore(
   deg_zscore = zscore_tpm_df,
   dep_zscore = zscore_protQ_df,
-  z_threshold = 1.96
+  z_threshold = 0.96
 )
 # Summary table
 all_proteins <- inner_join(zscore_tpm_df %>% distinct(Species, Protein_id),
@@ -947,65 +947,114 @@ print(p)
 ```{r ora-analysis}
 ```
 
-# Supplementary figures
+# Supplementary Tables & figures
 ```{r supp-config}
+library(openxlsx)
 SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
 dir.create(SUPP_OUTPUT_PATH)
 for (species in SPECIES) dir.create(file.path(SUPP_OUTPUT_PATH, species))
 ```
+## Supplementary Table 1. IBAQ values all genes detected my mass spectrometry for each replicates of 10 stress conditions and unexposed control conditions. The values for each species are shown in a separate sheet.
 
-## Protein and peptide lengths
+```{r supp-table-1}
+header <- "Supplementary Table 1. IBAQ values all genes detected by mass spectrometry for each replicate of 10 stress conditions and unexposed control conditions. The values for each species are shown in a separate sheet."
 
-```{r prot-length}
-source("sources/protein_quantification.R")
+wb <- createWorkbook()
 
-fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
-  sp <- tools::file_path_sans_ext(
-    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
-  fa <- Biostrings::readAAStringSet(fp)
-  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
-}))
-p1 <- plot_protein_length(fasta_lengths_df)
+protQ_data %>%
+  mutate(Treatment_Replicate = paste(Treatment, str_replace(Replicate, "R", "rep"), sep = "_")) %>%
+  group_by(Species) %>%
+  group_walk(function(sp_df, sp_key) {
+    species <- sp_key$Species
 
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
-save_plot(
-  plot = p1,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
+    wide_df <- sp_df %>%
+      dplyr::select(Protein_id, Treatment_Replicate, iBAQ) %>%
+      pivot_wider(
+        names_from = Treatment_Replicate,
+        values_from = iBAQ,
+        values_fill = NA
+      ) %>%
+      arrange(Protein_id)
 
-p2 <- plot_peptide_length(
-  all_raw_digests,
-  min_peptide_len = MIN_PEPTIDE_LEN,
-  max_peptide_len = MAX_PEPTIDE_LEN
-)
-output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
-save_plot(
-  plot = p2,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
-fig <- p1 / p2 +
-  patchwork::plot_annotation(
-    theme = theme_publication() +
-      theme(
-        plot.title = element_text(size = 13, face = "bold"),
-        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
-                                     lineheight = 1.4)
-      )
-  ) &
-  theme(plot.background = element_rect(fill = "white", colour = NA))
+    col_order <- c("Protein_id", sort(setdiff(colnames(wide_df), "Protein_id")))
+    wide_df <- wide_df %>% dplyr::select(all_of(col_order))
 
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
-save_plot(
-  plot = fig,
-  filepath = output_file,
-  width = 16, height = 16
-)
-message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
-print(fig)
+    sample_cols <- setdiff(col_order, "Protein_id")
+    treatments <- str_remove(sample_cols, "_rep\\d+$")
+
+    addWorksheet(wb, sheetName = species)
+
+    # --- Row 1: Full header text merged across all columns ---------------
+    writeData(wb, sheet = species, x = header,
+              startRow = 1, startCol = 1)
+    mergeCells(wb, sheet = species,
+               rows = 1, cols = 1:length(col_order))
+    addStyle(wb, sheet = species,
+             style = createStyle(
+               fontName = "Arial", fontSize = 10,
+               textDecoration = "bold", wrapText = TRUE
+             ),
+             rows = 1, cols = 1)
+    setRowHeights(wb, sheet = species, rows = 1, heights = 40)
+
+    # --- Row 2: Treatment group headers (merged per treatment) -----------
+    treatment_style <- createStyle(
+      fontName = "Arial", fontSize = 10,
+      textDecoration = "bold", fgFill = "#B8CCE4",
+      halign = "center", border = "Bottom"
+    )
+
+    writeData(wb, sheet = species, x = "Protein_id",
+              startRow = 2, startCol = 1)
+    addStyle(wb, sheet = species, style = treatment_style,
+             rows = 2, cols = 1)
+
+    for (trt in unique(treatments)) {
+      trt_cols <- which(treatments == trt) + 1  # +1 for Protein_id
+      start_col <- min(trt_cols)
+      end_col <- max(trt_cols)
+
+      writeData(wb, sheet = species, x = trt,
+                startRow = 2, startCol = start_col)
+      if (start_col < end_col) {
+        mergeCells(wb, sheet = species,
+                   rows = 2, cols = start_col:end_col)
+      }
+      addStyle(wb, sheet = species, style = treatment_style,
+               rows = 2, cols = start_col:end_col, gridExpand = TRUE)
+    }
+
+    # --- Row 3: Sample column headers (Treatment_Replicate) --------------
+    sample_style <- createStyle(
+      fontName = "Arial", fontSize = 10,
+      textDecoration = "bold", fgFill = "#D9E1F2",
+      halign = "center", border = "Bottom"
+    )
+
+    writeData(wb, sheet = species, x = as.data.frame(t(col_order)),
+              startRow = 3, startCol = 1, colNames = FALSE)
+    addStyle(wb, sheet = species, style = sample_style,
+             rows = 3, cols = 1:length(col_order), gridExpand = TRUE)
+
+    # --- Row 4+: Data ----------------------------------------------------
+    writeData(wb, sheet = species, x = wide_df,
+              startRow = 4, startCol = 1, colNames = FALSE)
+
+    addStyle(wb, sheet = species,
+             style = createStyle(fontName = "Arial", fontSize = 10),
+             rows = 4:(nrow(wide_df) + 3),
+             cols = 1:ncol(wide_df), gridExpand = TRUE)
+
+    setColWidths(wb, sheet = species,
+                 cols = 1:ncol(wide_df), widths = "auto")
+
+    message("Sheet added: ", species, " (", nrow(wide_df), " proteins x ",
+            ncol(wide_df) - 1, " samples)")
+  })
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "Supplementary_Table_1.xlsx")
+saveWorkbook(wb, output_file, overwrite = TRUE)
+message("Excel file saved: ", output_file)
 ```
 
 ## Pairwise comparison of log2-transformed protein expression value (iBAQ) for each of the three replicates per condition.
@@ -1036,7 +1085,6 @@ walk(species_list, function(sp) {
     species_name = sp
   )
   plot2species[[sp]] <<- p
-  print(p)
   output_file <- file.path(SUPP_OUTPUT_PATH, sp, "replicate_correlation")
   save_plot(
     plot = p,
@@ -1049,13 +1097,60 @@ walk(species_list, function(sp) {
 ```
 ### Salmonella enterica
 
-```{r plot-senterica}
+```{r plot-pairwise-senterica}
 print(plot2species$Salmonella_enterica)
 ```
 ### Staphylococcus aureus
-
+```{r plot-pairwise-senterica}
+print(plot2species$Staphylococcus_aureus)
+```
 ### Yersinia pseudotuberculosis
+```{r plot-pairwise-senterica}
+print(plot2species$Yersinia_pseudotuberculosis)
+```
+## Essential vs non-essential per treatment
 
+### Mean mRNA expression frequency of essential and non-essential genes
+```{r essential-per-condition}
+source("sources/essential_analyses.R")
+plot <- plot_essential_distribution_per_treatment(
+  all_df = tpm_log2_data,
+  essential_df = essential_df,
+  log2_col = "mean_log2_TPM",
+  x_lab = "TPM",
+  output_path = SUPP_OUTPUT_PATH
+)
+
+print(plot)
+
+save_plot(
+  plot = plot,
+  filepath = file.path(SUPP_OUTPUT_PATH, "TPM_per_treatment_essential_distribution"),
+  width = 24, height = 24
+)
+```
+### Mean protein expression frequency of essential and non-essential genes
+```{r essential-per-condition}
+source("sources/essential_analyses.R")
+plot <- plot_essential_distribution_per_treatment(
+  all_df = protQ_data,
+  essential_df = essential_df,
+  log2_col = protQ_meanlog2,
+  x_lab = PROTEIN_QUANTIFICATION_METHOD,
+  output_path = SUPP_OUTPUT_PATH
+)
+
+save_plot(
+  plot = plot,
+  filepath = file.path(SUPP_OUTPUT_PATH, paste0(
+    PROTEIN_QUANTIFICATION_METHOD, "_per_treatment_essential_distribution"
+  )
+  ),
+  width = 24, height = 24
+)
+
+print(plot)
+```
 ## Normalization
 ```{r normalization-comparison}
 source("sources/normalization.R")
@@ -1156,22 +1251,22 @@ source("sources/discordant_analyses.R")
 # ---- 1. Per-treatment: one file per treatment, 3 species side by side -------
 
 walk(STRESS_TREATMENTS, function(treat) {
-    d <- filter_treatment(treat)
+  d <- filter_treatment(treat)
 
-    # Save per-species plots
-    invisible(plot_discordance_scatter_zscore(
-        d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH,
-        prefix           = treat,
-        save_per_species = TRUE
-    ))
+  # Save per-species plots
+  invisible(plot_discordance_scatter_zscore(
+    d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH,
+    prefix = treat,
+    save_per_species = TRUE
+  ))
 
-    # Combined 3-species plot
-    combined <- make_treatment_row(treat, show_legend = TRUE)
+  # Combined 3-species plot
+  combined <- make_treatment_row(treat, show_legend = TRUE)
 
-    output_file <- file.path(SUPP_OUTPUT_PATH,
-                             paste(treat, "discordance_scatter_zscore", sep = "_"))
-    save_plot(combined, output_file, width = 16, height = 5)
-    message("Saved: ", output_file, MSG_FIG_FORMAT)
+  output_file <- file.path(SUPP_OUTPUT_PATH,
+                           paste(treat, "discordance_scatter_zscore", sep = "_"))
+  save_plot(combined, output_file, width = 16, height = 5)
+  message("Saved: ", output_file, MSG_FIG_FORMAT)
 })
 
 # ---- 2. All treatments x 3 species: 4x3 grid --------------------------------
@@ -1179,9 +1274,9 @@ walk(STRESS_TREATMENTS, function(treat) {
 all_treatment_plots <- map(STRESS_TREATMENTS, make_treatment_row)
 
 grid_plots <- c(
-    all_treatment_plots,
-    list(extract_cluster_legend(STRESS_TREATMENTS[1])),
-    list(plot_spacer())
+  all_treatment_plots,
+  list(extract_cluster_legend(STRESS_TREATMENTS[1])),
+  list(plot_spacer())
 )
 
 combined_grid <- wrap_plots(grid_plots, ncol = 3)
@@ -1194,33 +1289,33 @@ print(combined_grid)
 # ---- 3. Per-species: all treatments in 4x3 grid, one file per species -------
 
 walk(sort(unique(discordance_df$Species)), function(species) {
-    species_plots <- map(STRESS_TREATMENTS, function(treat) {
-        d <- filter_treatment(treat, species)
-        plots <- plot_discordance_scatter_zscore(
-            d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
-        )
-        plots[[1]] +
-            theme(legend.position = "none") +
-            labs(title = treat) +
-            theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
-    })
+  species_plots <- map(STRESS_TREATMENTS, function(treat) {
+    d <- filter_treatment(treat, species)
+    plots <- plot_discordance_scatter_zscore(
+      d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
+    )
+    plots[[1]] +
+      theme(legend.position = "none") +
+      labs(title = treat) +
+      theme(plot.title = element_text(face = "bold", size = 9, hjust = 0.5))
+  })
 
-    combined_species <- wrap_plots(
-        c(species_plots,
-          list(extract_cluster_legend(STRESS_TREATMENTS[1])),
-          list(plot_spacer())),
-        ncol = 3
-    ) +
-        plot_annotation(
-            title = format_species_title(species),
-            theme = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
-        )
+  combined_species <- wrap_plots(
+    c(species_plots,
+      list(extract_cluster_legend(STRESS_TREATMENTS[1])),
+      list(plot_spacer())),
+    ncol = 3
+  ) +
+    plot_annotation(
+      title = format_species_title(species),
+      theme = theme(plot.title = element_text(hjust = 0.5, face = "italic", size = 12))
+    )
 
-    output_file <- file.path(SUPP_OUTPUT_PATH, species,
-                             "all_treatments_discordance_scatter_zscore")
-    save_plot(combined_species, output_file, width = 18, height = 24)
-    message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
-    print(combined_species)
+  output_file <- file.path(SUPP_OUTPUT_PATH, species,
+                           "all_treatments_discordance_scatter_zscore")
+  save_plot(combined_species, output_file, width = 18, height = 24)
+  message("All-treatment grid saved for: ", species, MSG_FIG_FORMAT)
+  print(combined_species)
 })
 ```
 
@@ -1581,4 +1676,57 @@ iwalk(mean_df_list, function(df, species) {
     quote = FALSE
   )
 })
+```
+## Protein and peptide lengths
+
+```{r prot-length}
+source("sources/protein_quantification.R")
+
+fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+  sp <- tools::file_path_sans_ext(
+    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+  fa <- Biostrings::readAAStringSet(fp)
+  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+}))
+p1 <- plot_protein_length(fasta_lengths_df)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
+save_plot(
+  plot = p1,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
+
+p2 <- plot_peptide_length(
+  all_raw_digests,
+  min_peptide_len = MIN_PEPTIDE_LEN,
+  max_peptide_len = MAX_PEPTIDE_LEN
+)
+output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
+save_plot(
+  plot = p2,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
+fig <- p1 / p2 +
+  patchwork::plot_annotation(
+    theme = theme_publication() +
+      theme(
+        plot.title = element_text(size = 13, face = "bold"),
+        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+                                     lineheight = 1.4)
+      )
+  ) &
+  theme(plot.background = element_rect(fill = "white", colour = NA))
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
+save_plot(
+  plot = fig,
+  filepath = output_file,
+  width = 16, height = 16
+)
+message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
+print(fig)
 ```
