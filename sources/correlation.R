@@ -48,7 +48,7 @@ calculate_correlation <- function(tpm_data, protQ_data, mean_protQ_col) {
     mutate(
       R = map_dbl(cor_test, ~if (is.null(.x)) NA_real_ else .x$estimate),
       p_value = map_dbl(cor_test, ~if (is.null(.x)) NA_real_ else .x$p.value),
-      label = sprintf("R: %.2f\np: %.2e", R, p_value)
+      label = sprintf("R: %.2f\np: %.2e\n%s", R, p_value, Treatment)
     ) %>%
     dplyr::select(-cor_test)
   left_join(df, stats_df, by = c("Species", "Treatment"))
@@ -160,7 +160,8 @@ plot_correlation <- function(
           y = paste("Mean", protQ_name, "(log2)"),
           title = title_sp
         ) +
-        theme_publication(base_size = 24, legend_position = "right")
+        theme_publication(base_size = 24, legend_position = "right") +
+        theme(strip.text = element_blank())
 
       filename <- file.path(
         output_path,
@@ -186,7 +187,7 @@ plot_correlation <- function(
     theme(
       axis.title = element_text(size = 40),
       axis.text = element_text(size = 36),
-      strip.text = element_text(size = 40),
+      strip.text = element_blank(),
       legend.position = "right"
     )
 }
