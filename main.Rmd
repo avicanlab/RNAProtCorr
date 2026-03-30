@@ -954,6 +954,60 @@ SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
 dir.create(SUPP_OUTPUT_PATH)
 for (species in SPECIES) dir.create(file.path(SUPP_OUTPUT_PATH, species))
 ```
+## Protein and peptide lengths
+
+```{r prot-length}
+source("sources/protein_quantification.R")
+
+fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+  sp <- tools::file_path_sans_ext(
+    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+  fa <- Biostrings::readAAStringSet(fp)
+  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+}))
+p1 <- plot_protein_length(fasta_lengths_df)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
+save_plot(
+  plot = p1,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
+
+p2 <- plot_peptide_length(
+  all_raw_digests,
+  min_peptide_len = MIN_PEPTIDE_LEN,
+  max_peptide_len = MAX_PEPTIDE_LEN
+)
+output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
+save_plot(
+  plot = p2,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
+fig <- p1 / p2 +
+  patchwork::plot_annotation(
+    theme = theme_publication() +
+      theme(
+        plot.title = element_text(size = 13, face = "bold"),
+        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+                                     lineheight = 1.4)
+      )
+  ) &
+  theme(plot.background = element_rect(fill = "white", colour = NA))
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
+save_plot(
+  plot = fig,
+  filepath = output_file,
+  width = 16, height = 16
+)
+message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
+print(fig)
+```
+
 ## Supplementary Table 1. IBAQ values all genes detected my mass spectrometry for each replicates of 10 stress conditions and unexposed control conditions. The values for each species are shown in a separate sheet.
 
 ```{r supp-table-1}
@@ -1600,8 +1654,85 @@ p <- plot_enrichment_dotplot(
 )
 print(p)
 ```
+## Protein and peptide lengths
+
+```{r prot-length}
+source("sources/protein_quantification.R")
+
+fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+  sp <- tools::file_path_sans_ext(
+    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
+  fa <- Biostrings::readAAStringSet(fp)
+  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
+}))
+p1 <- plot_protein_length(fasta_lengths_df)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
+save_plot(
+  plot = p1,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
+
+p2 <- plot_peptide_length(
+  all_raw_digests,
+  min_peptide_len = MIN_PEPTIDE_LEN,
+  max_peptide_len = MAX_PEPTIDE_LEN
+)
+output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
+save_plot(
+  plot = p2,
+  filepath = output_file,
+  width = 8, height = 8
+)
+message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
+fig <- p1 / p2 +
+  patchwork::plot_annotation(
+    theme = theme_publication() +
+      theme(
+        plot.title = element_text(size = 13, face = "bold"),
+        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+                                     lineheight = 1.4)
+      )
+  ) &
+  theme(plot.background = element_rect(fill = "white", colour = NA))
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
+save_plot(
+  plot = fig,
+  filepath = output_file,
+  width = 16, height = 16
+)
+message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
+print(fig)
+```
+
 # Annexes
 
+## Export renv
+
+```{r export-env}
+# 1. Read the lockfile
+lock <- renv::lockfile_read("renv.lock")
+
+# 2. Extract only the simple, non-list fields
+clean_list <- lapply(lock$Packages, function(pkg) {
+  # We manually pick the fields that are strings, not lists
+  data.frame(
+    Package = pkg$Package %||% NA,
+    Version = pkg$Version %||% NA,
+    Source  = pkg$Source  %||% NA,
+    stringsAsFactors = FALSE
+  )
+})
+
+# 3. Bind them together (this will now work perfectly)
+pkg_df <- do.call(rbind, clean_list)
+
+# 4. Export to a friendly CSV
+write.csv(pkg_df, "renv.csv", row.names = FALSE)
+```
 ## Generate DF for MOBILE
 
 ```{r generate-mobile-data}
@@ -1676,57 +1807,4 @@ iwalk(mean_df_list, function(df, species) {
     quote = FALSE
   )
 })
-```
-## Protein and peptide lengths
-
-```{r prot-length}
-source("sources/protein_quantification.R")
-
-fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
-  sp <- tools::file_path_sans_ext(
-    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
-  fa <- Biostrings::readAAStringSet(fp)
-  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
-}))
-p1 <- plot_protein_length(fasta_lengths_df)
-
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
-save_plot(
-  plot = p1,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
-
-p2 <- plot_peptide_length(
-  all_raw_digests,
-  min_peptide_len = MIN_PEPTIDE_LEN,
-  max_peptide_len = MAX_PEPTIDE_LEN
-)
-output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
-save_plot(
-  plot = p2,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
-fig <- p1 / p2 +
-  patchwork::plot_annotation(
-    theme = theme_publication() +
-      theme(
-        plot.title = element_text(size = 13, face = "bold"),
-        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
-                                     lineheight = 1.4)
-      )
-  ) &
-  theme(plot.background = element_rect(fill = "white", colour = NA))
-
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
-save_plot(
-  plot = fig,
-  filepath = output_file,
-  width = 16, height = 16
-)
-message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
-print(fig)
 ```
