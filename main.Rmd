@@ -3,17 +3,22 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-rmdformats::downcute:
-code_folding: hide
-self_contained: true
-thumbnails: false
-lightbox: true
+    rmdformats::downcute:
+        code_folding: hide
+        self_contained: true
+        thumbnails: false
+        lightbox: true
 pkgdown:
-as_is: true
+  as_is: true
 ---
 # How to use
-
-[//]: # (TODO)
+Make sure R 4.4
+1. git clone
+2. install renv
+  - Trouble with BioCPrarallel Update Rtools to be same as R in renv
+  - Exclude option in restore then manual install
+3. Download data
+```
 
 # Configuration
 
@@ -967,59 +972,6 @@ SUPP_OUTPUT_PATH <- file.path(OUTPUT_PATH, "Supplementary")
 dir.create(SUPP_OUTPUT_PATH)
 for (species in SPECIES) dir.create(file.path(SUPP_OUTPUT_PATH, species))
 ```
-## Protein and peptide lengths
-
-```{r prot-length}
-source("sources/protein_quantification.R")
-
-fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
-  sp <- tools::file_path_sans_ext(
-    stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
-  fa <- Biostrings::readAAStringSet(fp)
-  tibble::tibble(Species = sp, protein_length = Biostrings::width(fa))
-}))
-p1 <- plot_protein_length(fasta_lengths_df)
-
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_length")
-save_plot(
-  plot = p1,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message("  Protein lenght plot saved: ", output_file, MSG_FIG_FORMAT)
-
-p2 <- plot_peptide_length(
-  all_raw_digests,
-  min_peptide_len = MIN_PEPTIDE_LEN,
-  max_peptide_len = MAX_PEPTIDE_LEN
-)
-output_file <- file.path(SUPP_OUTPUT_PATH, "peptide_length")
-save_plot(
-  plot = p2,
-  filepath = output_file,
-  width = 8, height = 8
-)
-message(" Peptide plot saved: ", output_file, MSG_FIG_FORMAT)
-fig <- p1 / p2 +
-  patchwork::plot_annotation(
-    theme = theme_publication() +
-      theme(
-        plot.title = element_text(size = 13, face = "bold"),
-        plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
-                                     lineheight = 1.4)
-      )
-  ) &
-  theme(plot.background = element_rect(fill = "white", colour = NA))
-
-output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
-save_plot(
-  plot = fig,
-  filepath = output_file,
-  width = 16, height = 16
-)
-message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
-print(fig)
-```
 
 ## Supplementary Table 1. IBAQ values all genes detected my mass spectrometry for each replicates of 10 stress conditions and unexposed control conditions. The values for each species are shown in a separate sheet.
 
@@ -1168,17 +1120,17 @@ walk(species_list, function(sp) {
 print(plot2species$Salmonella_enterica)
 ```
 ### Staphylococcus aureus
-```{r plot-pairwise-senterica}
+```{r plot-pairwise-saureus}
 print(plot2species$Staphylococcus_aureus)
 ```
 ### Yersinia pseudotuberculosis
-```{r plot-pairwise-senterica}
+```{r plot-pairwise-tpseudotuberculosis}
 print(plot2species$Yersinia_pseudotuberculosis)
 ```
 ## Essential vs non-essential per treatment
 
 ### Mean mRNA expression frequency of essential and non-essential genes
-```{r essential-per-condition}
+```{r essential-per-condition-protein}
 source("sources/essential_analyses.R")
 plot <- plot_essential_distribution_per_treatment(
   all_df = tpm_log2_data,
