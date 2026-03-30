@@ -21,33 +21,33 @@
 #'   - pct_rna       : percentage of CDS detected in RNA
 #'   - pct_prot      : percentage of CDS detected in proteomics
 get_detected_cds <- function(annotation_data, rna_data, prot_data) {
-    species_list <- unique(annotation_data$Species)
+  species_list <- unique(annotation_data$Species)
 
-    map_dfr(species_list, function(sp) {
-        total_cds <- annotation_data %>%
-            filter(Species == sp) %>%
-            distinct(Protein_id) %>%
-            nrow()
+  map_dfr(species_list, function(sp) {
+    total_cds <- annotation_data %>%
+      filter(Species == sp) %>%
+      distinct(Protein_id) %>%
+      nrow()
 
-        rna_detected <- rna_data %>%
-            filter(Species == sp) %>%
-            distinct(Protein_id) %>%
-            nrow()
+    rna_detected <- rna_data %>%
+      filter(Species == sp) %>%
+      distinct(Protein_id) %>%
+      nrow()
 
-        prot_detected <- prot_data %>%
-            filter(Species == sp) %>%
-            distinct(Protein_id) %>%
-            nrow()
+    prot_detected <- prot_data %>%
+      filter(Species == sp) %>%
+      distinct(Protein_id) %>%
+      nrow()
 
-        tibble(
-            Species       = sp,
-            total_cds     = total_cds,
-            rna_detected  = rna_detected,
-            prot_detected = prot_detected,
-            pct_rna       = 100 * rna_detected / total_cds,
-            pct_prot      = 100 * prot_detected / total_cds
-        )
-    })
+    tibble(
+      Species = sp,
+      total_cds = total_cds,
+      rna_detected = rna_detected,
+      prot_detected = prot_detected,
+      pct_rna = 100 * rna_detected / total_cds,
+      pct_prot = 100 * prot_detected / total_cds
+    )
+  })
 }
 
 #' Plot Percentage of Detected CDS per Species
@@ -73,102 +73,94 @@ get_detected_cds <- function(annotation_data, rna_data, prot_data) {
 plot_barplot_detected_cds <- function(
   detected_cds_data, position = "overlay", show_percent = FALSE
 ) {
-    plot_df <- detected_cds_data %>%
-        pivot_longer(
-            cols      = c(pct_rna, pct_prot),
-            names_to  = "type",
-            values_to = "pct"
-        ) %>%
-        mutate(
-            type = factor(type,
-                levels = c("pct_rna", "pct_prot"),
-                labels = c("Transcriptome", "Proteome")
-            ),
-            Species = factor(Species)
-        )
-
-    species_levels <- levels(plot_df$Species)
-    x_labels <- setNames(
-        lapply(species_levels, format_species_title, linebreak = TRUE),
-        species_levels
+  plot_df <- detected_cds_data %>%
+    pivot_longer(
+      cols = c(pct_rna, pct_prot),
+      names_to = "type",
+      values_to = "pct"
+    ) %>%
+    mutate(
+      type = factor(type,
+                    levels = c("pct_rna", "pct_prot"),
+                    labels = c("Transcriptome", "Proteome")
+      ),
+      Species = factor(Species)
     )
 
-    if (position == "overlay") {
-        p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
-            geom_col(
-                data     = ~ filter(.x, type == "Transcriptome"),
-                width    = 0.8,
-                alpha    = 1,
-                position = "identity"
-            ) +
-            geom_col(
-                data     = ~ filter(.x, type == "Proteome"),
-                width    = 0.8,
-                alpha    = 1,
-                position = "identity"
-            )
+  species_levels <- levels(plot_df$Species)
+  x_labels <- setNames(
+    lapply(species_levels, format_species_title, linebreak = TRUE),
+    species_levels
+  )
 
-        if (show_percent) {
-            p <- p +
-                geom_text(
-                    data = ~ filter(.x, type == "Transcriptome"),
-                    aes(label = sprintf("%.1f%%", pct), y = pct),
-                    vjust = -0.4,
-                    size = 3.5,
-                    color = "grey30"
-                ) +
-                geom_text(
-                    data = ~ filter(.x, type == "Proteome"),
-                    aes(label = sprintf("%.1f%%", pct), y = pct),
-                    vjust = 1.4,
-                    size = 3.5,
-                    color = "grey30"
-                )
-        }
-    } else {
-        p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
-            geom_col(
-                position = position_dodge(width = 0.75),
-                width    = 0.65,
-                alpha    = 0.85
-            )
+  if (position == "overlay") {
+    p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
+      geom_col(
+        data = ~filter(.x, type == "Transcriptome"),
+        width = 0.8,
+        alpha = 1,
+        position = "identity"
+      ) +
+      geom_col(
+        data = ~filter(.x, type == "Proteome"),
+        width = 0.8,
+        alpha = 1,
+        position = "identity"
+      )
 
-        if (show_percent) {
-            p <- p +
-                geom_text(
-                    aes(label = sprintf("%.1f%%", pct)),
-                    position = position_dodge(width = 0.75),
-                    vjust = -0.4,
-                    size = 3.5,
-                    color = "grey30"
-                )
-        }
-    }
-
-    p +
-        scale_fill_manual(
-            values = c("Transcriptome" = "#C2E3F2", "Proteome" = "#FFD892"),
-            name   = NULL
+    if (show_percent) {
+      p <- p +
+        geom_text(
+          data = ~filter(.x, type == "Transcriptome"),
+          aes(label = sprintf("%.1f%%", pct), y = pct),
+          vjust = -0.4,
+          size = 3.5,
+          color = "grey30"
         ) +
-        scale_x_discrete(labels = x_labels) +
-        scale_y_continuous(
-            limits = c(0, 100),
-            expand = expansion(mult = c(0, 0.02)),
-            breaks = seq(0, 100, by = 20)
-        ) +
-        labs(x = NULL, y = "CDS detected (%)") +
-        theme_bw(base_size = 11) +
-        theme(
-            axis.text.x        = element_text(size = 14, angle = 25, hjust = 1),
-            axis.text.y        = element_text(size = 12),
-            axis.title.y       = element_text(size = 14),
-            panel.grid.major.x = element_blank(),
-            panel.grid.minor   = element_blank(),
-            panel.border       = element_rect(colour = "grey70"),
-            legend.position    = "top",
-            legend.text        = element_text(size = 14),
-            legend.key.size    = unit(0.6, "cm")
+        geom_text(
+          data = ~filter(.x, type == "Proteome"),
+          aes(label = sprintf("%.1f%%", pct), y = pct),
+          vjust = 1.4,
+          size = 3.5,
+          color = "grey30"
         )
+    }
+  } else {
+    p <- ggplot(plot_df, aes(x = Species, y = pct, fill = type)) +
+      geom_col(
+        position = position_dodge(width = 0.75),
+        width = 0.65,
+        alpha = 0.85
+      )
+
+    if (show_percent) {
+      p <- p +
+        geom_text(
+          aes(label = sprintf("%.1f%%", pct)),
+          position = position_dodge(width = 0.75),
+          vjust = -0.4,
+          size = 3.5,
+          color = "grey30"
+        )
+    }
+  }
+
+  p +
+    scale_fill_manual(
+      values = c("Transcriptome" = "#C2E3F2", "Proteome" = "#FFD892"),
+      name = NULL
+    ) +
+    scale_x_discrete(labels = x_labels) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      expand = expansion(mult = c(0, 0.02)),
+      breaks = seq(0, 100, by = 20)
+    ) +
+    labs(x = NULL, y = "CDS detected (%)") +
+    theme_publication(legend_position = "top") +
+    theme(
+      axis.text.x = element_text(angle = 25, hjust = 1)
+    )
 }
 
 #' Extract Common and Unique Protein IDs Between TPM and Proteomics
@@ -187,27 +179,27 @@ plot_barplot_detected_cds <- function(
 #' @return Tibble with columns: Protein_id, mean_log2_TPM, group
 #'   where group is a factor with levels: "mRNA", "Not protein", "Protein"
 classify_tpm_groups <- function(tpm_data, prot_data, sp) {
-    tpm_sp <- tpm_data %>% filter(Species == sp)
-    prot_sp <- prot_data %>% filter(Species == sp)
+  tpm_sp <- tpm_data %>% filter(Species == sp)
+  prot_sp <- prot_data %>% filter(Species == sp)
 
-    common_ids <- extract_common_ids(tpm_sp, prot_sp)
+  common_ids <- extract_common_ids(tpm_sp, prot_sp)
 
-    tpm_unique <- tpm_sp %>%
-        filter(is.finite(mean_log2_TPM)) %>%
-        group_by(Protein_id) %>%
-        summarise(mean_log2_TPM = mean(mean_log2_TPM, na.rm = TRUE), .groups = "drop")
+  tpm_unique <- tpm_sp %>%
+    filter(is.finite(mean_log2_TPM)) %>%
+    group_by(Protein_id) %>%
+    summarise(mean_log2_TPM = mean(mean_log2_TPM, na.rm = TRUE), .groups = "drop")
 
-    tpm_unique %>%
-        mutate(
-            group = factor(
-                ifelse(Protein_id %in% common_ids, "Protein", "Not protein"),
-                levels = c("mRNA", "Not protein", "Protein")
-            )
-        ) %>%
-        bind_rows(
-            tpm_unique %>%
-                mutate(group = factor("mRNA", levels = c("mRNA", "Not protein", "Protein")))
-        )
+  tpm_unique %>%
+    mutate(
+      group = factor(
+        ifelse(Protein_id %in% common_ids, "Protein", "Not protein"),
+        levels = c("mRNA", "Not protein", "Protein")
+      )
+    ) %>%
+    bind_rows(
+      tpm_unique %>%
+        mutate(group = factor("mRNA", levels = c("mRNA", "Not protein", "Protein")))
+    )
 }
 
 #' Plot TPM Distribution by Detection Group for One Species
@@ -223,62 +215,57 @@ classify_tpm_groups <- function(tpm_data, prot_data, sp) {
 #'
 #' @return A ggplot object.
 plot_tpm_detection_species <- function(classified_df, species, x_max = NULL) {
-    if (is.null(x_max)) {
-        x_max <- ceiling(max(classified_df$mean_log2_TPM, na.rm = TRUE))
-    }
+  if (is.null(x_max)) {
+    x_max <- ceiling(max(classified_df$mean_log2_TPM, na.rm = TRUE))
+  }
 
-    # Build italic title with optional plain suffix for strain names
-    display <- PLOT_SPECIES_NAMES[species]
-    display <- ifelse(is.na(display), gsub("_", " ", species), display)
-    parts <- strsplit(display, " ")[[1]]
-    title_expr <- format_species_title(species)
+  # Build italic title with optional plain suffix for strain names
+  display <- PLOT_SPECIES_NAMES[species]
+  display <- ifelse(is.na(display), gsub("_", " ", species), display)
+  parts <- strsplit(display, " ")[[1]]
+  title_expr <- format_species_title(species)
 
-    layer_order <- c("mRNA", "Not protein", "Protein")
-    group_colours <- c(
-        "mRNA"        = "#C2E3F2",
-        "Not protein" = "#A3BECC",
-        "Protein"     = "#FFD892"
-    )
+  layer_order <- c("mRNA", "Not protein", "Protein")
+  group_colours <- c(
+    "mRNA" = "#C2E3F2",
+    "Not protein" = "#A3BECC",
+    "Protein" = "#FFD892"
+  )
 
-    ggplot(
-        classified_df %>%
-            mutate(group = factor(group, levels = layer_order)),
-        aes(x = mean_log2_TPM, fill = group)
+  ggplot(
+    classified_df %>%
+      mutate(group = factor(group, levels = layer_order)),
+    aes(x = mean_log2_TPM, fill = group)
+  ) +
+    geom_histogram(
+      data = ~filter(.x, group == "mRNA"),
+      binwidth = 0.5, alpha = 0.85, colour = NA
     ) +
-        geom_histogram(
-            data = ~ filter(.x, group == "mRNA"),
-            binwidth = 0.5, alpha = 0.85, colour = NA
-        ) +
-        geom_histogram(
-            data = ~ filter(.x, group == "Not protein"),
-            binwidth = 0.5, alpha = 0.85, colour = NA
-        ) +
-        geom_histogram(
-            data = ~ filter(.x, group == "Protein"),
-            binwidth = 0.5, alpha = 0.85, colour = NA
-        ) +
-        scale_fill_manual(values = group_colours, breaks = layer_order, name = NULL) +
-        scale_x_continuous(
-            limits = c(0, x_max),
-            expand = expansion(mult = c(0, 0.02)),
-            breaks = seq(0, x_max, by = 2.5)
-        ) +
-        scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-        labs(
-            title = title_expr,
-            x     = "Mean TPM (log2)",
-            y     = "Number of genes"
-        ) +
-        theme_bw(base_size = 10) +
-        theme(
-            plot.title        = element_text(hjust = 0.5, size = 12),
-            axis.title        = element_text(size = 12),
-            axis.text         = element_text(size = 11),
-            panel.grid.minor  = element_blank(),
-            panel.grid.major  = element_line(colour = "grey92"),
-            legend.position   = c(0.72, 0.82),
-            legend.background = element_rect(fill = "white", colour = NA),
-            legend.key.size   = unit(0.4, "cm"),
-            legend.text       = element_text(size = 12)
-        )
+    geom_histogram(
+      data = ~filter(.x, group == "Not protein"),
+      binwidth = 0.5, alpha = 0.85, colour = NA
+    ) +
+    geom_histogram(
+      data = ~filter(.x, group == "Protein"),
+      binwidth = 0.5, alpha = 0.85, colour = NA
+    ) +
+    scale_fill_manual(values = group_colours, breaks = layer_order, name = NULL) +
+    scale_x_continuous(
+      limits = c(0, x_max),
+      expand = expansion(mult = c(0, 0.02)),
+      breaks = seq(0, x_max, by = 2.5)
+    ) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    labs(
+      title = title_expr,
+      x = bquote("Mean TPM " ~ (Log[2])),
+      y = "Number of genes"
+    ) +
+    theme_publication() +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      panel.grid.major = element_line(colour = "grey92"),
+      legend.position = c(0.72, 0.82),
+      legend.background = element_rect(fill = "white", colour = NA),
+    )
 }

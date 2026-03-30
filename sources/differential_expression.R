@@ -153,19 +153,7 @@ plot_de_barplot_all <- function(deg_df, dep_df, output_path, prefix = NULL) {
                     x     = "Percentage",
                     y     = "Stress Conditions"
                 ) +
-                theme_bw(base_size = 11) +
-                theme(
-                    plot.title         = element_text(hjust = 0.5, size = 11),
-                    axis.title         = element_text(size = 10),
-                    axis.text          = element_text(size = 9),
-                    panel.grid.major.y = element_blank(),
-                    panel.grid.minor   = element_blank(),
-                    panel.border       = element_rect(colour = "grey70"),
-                    legend.position    = c(0.82, 0.92),
-                    legend.background  = element_rect(fill = "white", colour = NA),
-                    legend.key.size    = unit(0.4, "cm"),
-                    legend.text        = element_text(size = 9)
-                )
+                theme_publication()
         })
 
     # Save per species
@@ -213,7 +201,7 @@ plot_de_vs_correlation_all <- function(
         pearson_test <- cor.test(plot_df$pct_de, plot_df$R, method = "pearson")
         label <- paste0(
             sprintf("R = %.2f", pearson_test$estimate),
-            "\np = ", format.pval(pearson_test$p.value,
+            " - p = ", format.pval(pearson_test$p.value,
                 digits = 2,
                 eps = .Machine$double.xmin
             )
@@ -242,7 +230,7 @@ plot_de_vs_correlation_all <- function(
                 y = max(plot_df$pct_de),
                 label = label,
                 hjust = 1, vjust = 1,
-                size = 3,
+                size = 8,
                 fill = "white",
                 label.padding = unit(0.2, "lines"),
                 fontface = "italic"
@@ -261,16 +249,7 @@ plot_de_vs_correlation_all <- function(
                 colour = "Treatment",
                 shape = "Species"
             ) +
-            theme_bw(base_size = 11) +
-            theme(
-                axis.title       = element_text(size = 10),
-                axis.text        = element_text(size = 9),
-                panel.grid.minor = element_blank(),
-                legend.text      = element_text(size = 8),
-                legend.title     = element_text(size = 9),
-                legend.key.size  = unit(0.45, "cm")
-            )
-
+            theme_publication()
         out_file <- file.path(
             output_path,
             paste(prefix, de_type, "vs_correlation", protq_name, sep = "_")

@@ -11,7 +11,11 @@ lightbox: true
 pkgdown:
 as_is: true
 ---
+# How to use
 
+[//]: # (TODO)
+
+# Configuration
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
@@ -22,7 +26,7 @@ knitr::opts_chunk$set(
   fig.width = 12
 )
 ```
-
+## Load library
 ```{r load-environment, results='hide'}
 # Load library
 library(fs)
@@ -31,12 +35,14 @@ library(readxl)
 library(patchwork)
 library(stringr)
 library(tidyverse)
+library(showtext)
 library(limma)
 
 # Load sources functions
 source("sources/utils.R")
 ```
 
+## Path and variable
 ```{r configuration, results='hide', error=TRUE}
 #' Species Abbreviation Mapping
 #' Maps full species names to abbreviations for data parsing
@@ -135,9 +141,18 @@ walk(files, ~if (!file_exists(.x)) stop(.x, " not found"))
 
 # --- Expose to environment (equivalent to your original variables) -------------
 list2env(c(dirs, files), envir = .GlobalEnv)
+
+# 1. Search for Arial on the system and load it
+# 'family' is what you'll call it in ggplot; 'regular' is the path to the file.
+# On most systems, showtext_auto() finds Arial automatically if you add it:
+font_add(family = "Arial", regular = "arial.ttf")
+
+# 2. Extremely important: This activates showtext for all new plots
+showtext_auto()
 ```
 
-# Data loading and processing
+# Results
+## Data loading and processing
 ```{r load-tpm, results='hide'}
 source("sources/read_data.R")
 # Load RNA tpm data
@@ -273,8 +288,8 @@ output_file <- file.path(OUTPUT_PATH, "CDS_detected")
 save_plot(
   plot = p,
   filepath = output_file,
-  width = 8,
-  height = 12,
+  width = 6,
+  height = 9,
 )
 message(
   "CDS detected for mRNA and prtoein saved: ", output_file, MSG_FIG_FORMAT
@@ -317,8 +332,8 @@ plots <- imap(species_list, function(species, i) {
   save_plot(
     plot = p,
     filepath = output_sp,
-    width = 16,
-    height = 8
+    width = 12,
+    height = 6
   )
 
   message(
@@ -339,8 +354,8 @@ output_file <- file.path(OUTPUT_PATH, "TPM_detection_distribution")
 save_plot(
   plot = combined,
   filepath = file.path(OUTPUT_PATH, "TPM_detection_distribution"),
-  width = 16,
-  height = 8
+  width = 12,
+  height = 6
 )
 
 message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -419,7 +434,7 @@ message(
 
 ## mRNA-protein levels correlation under different stress conditions and control condition
 
-```{r rna-protein-correlation, fig.height = 24}
+```{r rna-protein-correlation, fig.height = 18}
 source("sources/correlation.R")
 protQ_meanlog2 <- paste0(PROTEIN_QUANTIFICATION_METHOD, "_meanlog2")
 common_ids <- extract_common_ids(tpm_log2_data, protQ_data)
@@ -438,8 +453,8 @@ output_file <- file.path(
 save_plot(
   p,
   output_file,
-  width = 16,
-  height = 20,
+  width = 12,
+  height = 18,
   units = "in"
 )
 message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -522,8 +537,8 @@ output_file <- file.path(
 save_plot(
   p,
   output_file,
-  width = 16,
-  height = 4,
+  width = 12,
+  height = 6,
   units = "in"
 )
 message("TPM essential distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -550,8 +565,8 @@ output_file <- file.path(
 save_plot(
   p,
   output_file,
-  width = 16,
-  height = 4,
+  width = 12,
+  height = 6,
   units = "in"
 )
 message(
@@ -626,8 +641,8 @@ output_file <- file.path(
 save_plot(
   p,
   output_file,
-  width = 16,
-  height = 4,
+  width = 12,
+  height = 6,
   units = "in"
 )
 message("TPM essential standard deviation distribution combined figure saved: ", output_file, MSG_FIG_FORMAT)
@@ -655,8 +670,8 @@ output_file <- file.path(
 save_plot(
   p,
   output_file,
-  width = 16,
-  height = 4,
+  width = 12,
+  height = 6,
   units = "in"
 )
 message(
@@ -697,9 +712,7 @@ exposure_corr_df <- corr_rna_prot %>%
       levels = EXPOSURE_TIME_LABELS
     )
   )
-print(exposure_corr_df)
 stats_df <- compute_exposure_correlations(exposure_corr_df)
-print(stats_df)
 label_pos <- build_label_position(exposure_corr_df, stats_df)
 
 p <- build_exposure_plot(
@@ -832,7 +845,7 @@ output_file <- file.path(OUTPUT_PATH, "DE_vs_correlation")
 save_plot(
   plot = combined,
   filepath = output_file,
-  width = 16, height = 10
+  width = 12, height = 8
 )
 ```
 

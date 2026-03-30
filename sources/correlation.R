@@ -140,7 +140,7 @@ plot_correlation <- function(
       label_df <- label_df %>% mutate(Treatment = factor(Treatment, levels = ordered_treatments))
 
       p <- ggplot(sp_df, aes(x = mean_log2_TPM, y = !!sym(mean_protQ_col))) +
-        geom_point(aes(colour = density), alpha = 0.6, size = 1.2) +
+        geom_point(aes(colour = density), alpha = 0.5, size = 0.6) +
         scale_colour_gradientn(
           colours = c(
             "#c8d8e8", "#a8d8ea", "#8B7BB5", "#6B3A6B",
@@ -151,8 +151,8 @@ plot_correlation <- function(
         geom_smooth(method = "lm", se = FALSE, colour = "red", linewidth = 0.8) +
         geom_text(
           data = label_df,
-          aes(x = x, y = y, label = label),
-          hjust = 0, vjust = 1, size = 4, fontface = "bold", family = "mono"
+          aes(x = x, y = y, label = label), lineheight = 0.5,
+          hjust = 0, vjust = 1, size = 5, fontface = "bold", family = "Arial"
         ) +
         facet_wrap(~Treatment, scales = "free_x", ncol = 6) +
         labs(
@@ -160,14 +160,7 @@ plot_correlation <- function(
           y = paste("Mean", protQ_name, "(log2)"),
           title = title_sp
         ) +
-        theme_bw(base_size = 14) +
-        theme(
-          plot.title = element_text(face = "italic"),
-          strip.background = element_blank(),
-          strip.text = element_text(hjust = 0, face = "bold"),
-          panel.grid.minor = element_blank(),
-          legend.position = "right"
-        )
+        theme_publication(base_size = 24, legend_position = "right")
 
       filename <- file.path(
         output_path,
@@ -175,15 +168,27 @@ plot_correlation <- function(
         paste("TPM", protQ_name, "correlation_panels", sep = "_")
       )
 
-      save_plot(p, filename, width = 24, height = 10, units = "in", dpi = 300, out_format = FIGURE_FORMAT)
+      save_plot(p, filename, width = 12, height = 6, units = "in", dpi = 300, out_format = FIGURE_FORMAT)
       message("mRNA-protein correlatio for", species, "saved: ", filename, MSG_FIG_FORMAT)
-      p
+
+      p$layers[[3]] <- NULL
+      p +
+        geom_text(
+          data = label_df,
+          aes(x = x, y = y, label = label), lineheight = 0.5,
+          hjust = 0, vjust = 1, size = 8, fontface = "bold", family = "Arial"
+        )
     })
 
   # Combined: one species per row, shared x axis
   wrap_plots(plots, ncol = 1) +
     plot_layout(guides = "keep", axes = "collect_x") &
-    theme(legend.position = "right")
+    theme(
+      axis.title = element_text(size = 40),
+      axis.text = element_text(size = 36),
+      strip.text = element_text(size = 40),
+      legend.position = "right"
+    )
 }
 
 # ============================================================================
@@ -212,7 +217,7 @@ compute_exposure_correlations <- function(df) {
         error = function(e) NA_real_
       )
     ) %>%
-    mutate(label = sprintf("R: %.2f\np: %.3f", meta_R, meta_pval))
+    mutate(label = sprintf("R: %.2f - p: %.3f", meta_R, meta_pval))
 }
 
 #' Build Label Position for Top-Right Annotation
@@ -259,10 +264,10 @@ build_exposure_plot <- function(df, label_pos) {
     geom_label(
       data = label_pos,
       aes(x = x, y = y, label = label),
-      hjust = 2,
+      hjust = 4,
       vjust = 1,
-      linewidth = 1,
-      family = "mono",
+      linewidth = 0.25,
+      family = "Arial",
       color = "black",
       fill = "white",
       label.size = 0.4,
@@ -275,17 +280,9 @@ build_exposure_plot <- function(df, label_pos) {
     scale_fill_discrete(labels = PLOT_SPECIES_NAMES) +
     labs(
       x = "Exposure time",
-      y = "Pearson R",
+      y = "mRNA-protein Pearson correlation",
       fill = "Species",
       starshape = "Treatment" # was: shape = "Treatment"
     ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_blank(),
-      strip.text = element_text(face = "bold"),
-      legend.position = "right",
-      axis.title = element_text(size = 12),
-      axis.text = element_text(size = 10),
-      legend.text = element_text(size = 14)
-    )
+    theme_publication(legend_position = "right",)
 }

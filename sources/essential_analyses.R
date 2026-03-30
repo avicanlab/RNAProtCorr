@@ -109,7 +109,7 @@ plot_essential_distribution_per_treatment <- function(
           x_lab, "per_treatment_essential_distribution", sep = "_"
         )
       ),
-      width = 21, height = 24
+                width = 21, height = 24
       )
       sp_plot
     })
@@ -176,21 +176,16 @@ plot_essential_distribution <- function(
           y = "Frequency",
           fill = NULL
         ) +
-        theme_minimal() +
+        theme_publication() +
         theme(
-          plot.title = element_text(face = "italic", size = 14),
-          legend.position = c(0.85, 0.85),
-          axis.title = element_text(size = 12),
-          axis.text = element_text(size = 10),
-          legend.text = element_text(size = 14)
+          legend.position = c(0.85, 0.85)
         )
 
       save_plot(p, file.path(
         output_path, species, paste0(x_lab, "_essential_distribution")
       ),
-                width = 24, height = 8
+                width = 12, height = 4
       )
-
       p
     })
 
@@ -237,9 +232,10 @@ plot_essential_vs_all_correlation <- function(
           scales::hue_pal()(nrow(sp_df)),
           sp_df$Treatment
         )) +
-        coord_cartesian(
-          xlim = c(0.2, 1),
-          ylim = c(0.2, 1)
+        coord_fixed(
+          ratio = 1,
+          xlim = c(0.45, 0.9),
+          ylim = c(0.45, 0.9)
         ) +
         labs(
           title = title_sp,
@@ -247,11 +243,10 @@ plot_essential_vs_all_correlation <- function(
           y = "Essential genes'\nmRNA-protein level correlation",
           color = "Treatment"
         ) +
-        theme_bw() +
+        theme_publication(legend_position = "right") +
         theme(
-          plot.title = element_text(face = "italic", hjust = 0.5),
-          axis.title = element_text(size = 10),
-          legend.position = "right"
+          plot.title = element_text(hjust = 0.5),
+          axis.title = element_text(lineheight = 0.5)
         )
 
       save_plot(
@@ -337,7 +332,7 @@ plot_sd_distribution <- function(
           x = Inf, y = Inf,
           label = sprintf("p-value: %.2e", p_value),
           hjust = 1.1, vjust = 1.5,
-          size = 3.5,
+          size = 8,
           fontface = "italic"
         ) +
         labs(
@@ -346,14 +341,10 @@ plot_sd_distribution <- function(
           y = "Frequency",
           color = NULL
         ) +
-        theme_bw() +
+        theme_publication(legend_position = c(0.75, 0.85)) +
         theme(
           plot.title = element_text(hjust = 0.5),
-          legend.position = c(0.75, 0.85),
           legend.background = element_rect(fill = "white", color = NA),
-          axis.title = element_text(size = 12),
-          axis.text = element_text(size = 10),
-          legend.text = element_text(size = 14)
         )
 
       save_plot(
