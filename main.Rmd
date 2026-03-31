@@ -151,7 +151,10 @@ list2env(c(dirs, files), envir = .GlobalEnv)
 # 'family' is what you'll call it in ggplot; 'regular' is the path to the file.
 # On most systems, showtext_auto() finds Arial automatically if you add it:
 font_add(family = "Arial", regular = "arial.ttf")
-
+windowsFonts(
+    mono  = windowsFont("Courier New"),
+    Arial = windowsFont("Arial")
+)
 # 2. Extremely important: This activates showtext for all new plots
 showtext_auto()
 ```
@@ -912,20 +915,36 @@ combined_scatter <- wrap_plots(
   theme(legend.position = "top")
 
 print(combined_scatter)
-save_plot(combined_scatter, file.path(OUTPUT_PATH, "discordance_scatter_zscore"), width = 16, height = 5)
+save_plot(combined_scatter, file.path(OUTPUT_PATH, "discordance_scatter_zscore"), width = 12, height = 5)
 ```
 
 ```{r zscore-profiles}
 source("sources/discordant_analyses.R")
 species_list <- unique(discordance_df$Species)
+
 invisible(walk(species_list, function(species) {
-  p <- plot_discordance_profiles_zscore(discordance_df, OUTPUT_PATH, species_filter = species)
-  save_plot(p, file.path(OUTPUT_PATH, species, "discordance_profiles_zscore"), width = 14, height = 5)
-  message("Z-score profiles saved for: ", species, MSG_FIG_FORMAT)
+    p <- plot_discordance_profiles(
+        discordance_df,
+        OUTPUT_PATH,
+        species_filter  = species,
+        cluster_spacing = 0.1
+    )
+    save_plot(
+        p,
+        file.path(OUTPUT_PATH, species, "discordance_profiles"),
+        width = 12, height =4
+    )
+    message("Profiles saved for: ", species, MSG_FIG_FORMAT)
 }))
 
-combined_profiles <- plot_discordance_profiles_zscore(discordance_df, OUTPUT_PATH)
-save_plot(combined_profiles, file.path(OUTPUT_PATH, "discordance_profiles_zscore"), width = 20, height = 10)
+combined_profiles <- plot_discordance_profiles(
+    discordance_df, OUTPUT_PATH,
+    cluster_spacing = 0.1,
+    species_spacing = 0.4   # more space between species rows
+)
+save_plot(combined_profiles,
+          file.path(OUTPUT_PATH, "discordance_profiles"),
+          width = 12, height = 8)
 print(combined_profiles)
 ```
 ```{r enrichment-loading}
@@ -947,7 +966,8 @@ p <- plot_enrichment_dotplot(
   enrichment_results = enrichment_results,
   fdr_threshold = 0.05,
   top_n = 8, # limit to top 30 terms per cluster
-  output_path = OUTPUT_PATH
+  output_path = OUTPUT_PATH,
+  cluster_spacing = 0.1
 )
 print(p)
 ```

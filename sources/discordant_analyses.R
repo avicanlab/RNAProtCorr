@@ -327,7 +327,7 @@ build_discordance_clusters_zscore <- function(
     geom_vline(xintercept = 0, linetype = "dashed", colour = "grey30", linewidth = 0.5) +
     geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30", linewidth = 0.5) +
     annotate("text", x = x_lim[1], y = y_lim[2], label = count_label,
-             hjust = 0, vjust = 1, size = 3, colour = "grey30", fontface = "italic") +
+             hjust = -0.25, vjust = 2.5, size = 8, colour = "grey30", fontface = "italic") +
     scale_fill_manual(values = CLUSTER_COLOURS, labels = CLUSTER_LABELS,
                       name = "mRNA \u2013 Protein", breaks = names(CLUSTER_COLOURS), drop = FALSE) +
     scale_starshape_manual(values = TREATMENT_SHAPES, name = "Treatment") +
@@ -338,17 +338,11 @@ build_discordance_clusters_zscore <- function(
     scale_x_continuous(limits = x_lim, breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) +
     scale_y_continuous(limits = y_lim, breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) +
     labs(title = format_species_title(species), x = x_lab, y = y_lab) +
-    theme_bw(base_size = 11) +
+    theme_publication(legend_position = "right") +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 10),
-      panel.grid.minor = element_blank(),
-      panel.grid.major = element_line(colour = "grey92"),
-      legend.position = "right",
-      legend.title = element_text(size = 9),
-      legend.text = element_text(size = 8),
-      legend.key.size = unit(0.4, "cm"),
-      axis.title = element_text(size = 10),
-      axis.text = element_text(size = 9)
+      legend.spacing = unit(0.2, "cm"),      # space between legend keys
+      legend.margin = margin(0.25, 0.25, 0.25, 0.25), # margin around each legend
+      legend.box.spacing = unit(0.2, "cm")   # space between the two legends
     )
 }
 
@@ -481,25 +475,45 @@ plot_discordance_scatter_zscore <- function(
 #' Build discordance profile plot (line plot per cluster)
 #'
 #' Internal helper shared by logFC and Z-score profile functions.
-.build_profile_plot <- function(df, count_df, y_col, y_lab,
-                                treatment_order, species_filter,
-                                species_labeller, threshold_band = NULL) {
+.build_profile_plot <- function(
+  df, count_df, y_col, y_lab,
+  treatment_order, species_filter,
+  species_labeller,
+  threshold_band = NULL,
+  cluster_spacing = 0.2,
+  species_spacing = 0.5
+) {
   facet <- if (is.null(species_filter)) {
-    facet_grid(Species ~ cluster, scales = "free_y",
-               labeller = labeller(Species = species_labeller,
-                                   cluster = as_labeller(CLUSTER_LABELS)))
+    facet_grid(
+      Species ~ cluster,
+      scales = "free_y",
+      space = "fixed",   # equal column widths
+      labeller = labeller(
+        Species = species_labeller,
+        cluster = as_labeller(CLUSTER_LABELS)
+      )
+    )
   } else {
-    facet_wrap(~cluster, nrow = 1, scales = "free_y",
-               labeller = as_labeller(CLUSTER_LABELS))
+    facet_wrap(
+      ~cluster, nrow = 1, scales = "free_y",
+      labeller = as_labeller(CLUSTER_LABELS)
+    )
   }
 
-  p <- ggplot(df, aes(x = Treatment, y = .data[[y_col]],
-                      group = interaction(Protein_id, measure),
-                      colour = measure)) +
-    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40", linewidth = 0.4)
+  base_size <- 24
+
+  p <- ggplot(df, aes(
+    x = Treatment,
+    y = .data[[y_col]],
+    group = interaction(Protein_id, measure),
+    colour = measure
+  )) +
+    geom_hline(yintercept = 0, linetype = "dashed",
+               colour = "grey40", linewidth = 0.4)
 
   if (!is.null(threshold_band)) {
-    p <- p + annotate("rect", xmin = -Inf, xmax = Inf,
+    p <- p + annotate("rect",
+                      xmin = -Inf, xmax = Inf,
                       ymin = -threshold_band, ymax = threshold_band,
                       alpha = 0.1, fill = "grey50")
   }
@@ -509,27 +523,34 @@ plot_discordance_scatter_zscore <- function(
     geom_text(
       data = count_df,
       aes(x = length(treatment_order), y = Inf, label = paste0("n=", n)),
-      hjust = 1.1, vjust = 1.5, size = 2.8,
+      hjust = 1.1, vjust = 1.5, size = 8,
       colour = "grey30", fontface = "italic", inherit.aes = FALSE
     ) +
     facet +
-    scale_colour_manual(values = c("mRNA" = "#E8C84A", "Protein" = "#7BBFDF"), name = NULL) +
+    scale_colour_manual(
+      values = c("mRNA" = "#E8C84A", "Protein" = "#7BBFDF"),
+      name = NULL
+    ) +
     scale_x_discrete(guide = guide_axis(angle = 45)) +
     labs(x = NULL, y = y_lab) +
-    theme_bw(base_size = 10) +
+    theme_bw(base_size = base_size) +
     theme(
-      strip.text.x = element_text(size = 9, face = "bold", colour = "white"),
-      strip.text.y = element_text(size = 9, face = "italic", angle = -90),
+      strip.text.x = element_text(size = base_size + 2, face = "bold",
+                                  colour = "white"),
+      strip.text.y = element_text(size = base_size + 2, face = "italic",
+                                  angle = -90),
       strip.background.x = element_rect(fill = "grey40"),
       strip.background.y = element_rect(fill = "white"),
       panel.grid.minor = element_blank(),
       panel.grid.major.x = element_blank(),
+      panel.spacing.x = unit(cluster_spacing, "cm"),  # space between clusters
+      panel.spacing.y = unit(species_spacing, "cm"),  # space between species
       legend.position = "right",
-      legend.text = element_text(size = 9),
+      legend.text = element_text(size = base_size + 2),
       legend.key.size = unit(0.4, "cm"),
-      axis.text.x = element_text(size = 7),
-      axis.text.y = element_text(size = 7),
-      axis.title.y = element_text(size = 9)
+      axis.text.x = element_text(size = base_size),
+      axis.text.y = element_text(size = base_size),
+      axis.title.y = element_text(size = base_size + 2)
     )
 }
 
@@ -591,10 +612,16 @@ plot_discordance_profiles <- function(discordance_df, output_path,
 #' @param z_threshold    Num. Z-score threshold shown as shaded band. Default 1.96.
 #'
 #' @return wrap_elements gtable object.
-plot_discordance_profiles_zscore <- function(discordance_df, output_path,
-                                             species_filter = NULL,
-                                             z_threshold = 1.96) {
-  treatment_order <- sort(unique(discordance_df$Treatment[discordance_df$Treatment != "Ctrl"]))
+plot_discordance_profiles <- function(
+  discordance_df, output_path,
+  species_filter = NULL,
+  z_threshold = 1.96,
+  cluster_spacing = 0.2,
+  species_spacing = 0.5
+) {
+  treatment_order <- sort(unique(
+    discordance_df$Treatment[discordance_df$Treatment != "Ctrl"]
+  ))
 
   filter_species <- function(df) {
     if (!is.null(species_filter)) filter(df, Species == species_filter) else df
@@ -607,10 +634,17 @@ plot_discordance_profiles_zscore <- function(discordance_df, output_path,
       Treatment = factor(Treatment, levels = treatment_order),
       cluster = factor(cluster, levels = names(CLUSTER_COLOURS))
     ) %>%
-    pivot_longer(cols = c(rna_z, prot_z),
-                 names_to = "measure", values_to = "zscore") %>%
-    mutate(measure = factor(ifelse(measure == "rna_z", "mRNA", "Protein"),
-                            levels = c("mRNA", "Protein")))
+    pivot_longer(
+      cols = c(rna_z, prot_z),
+      names_to = "measure",
+      values_to = "zscore"
+    ) %>%
+    mutate(
+      measure = factor(
+        ifelse(measure == "rna_z", "mRNA", "Protein"),
+        levels = c("mRNA", "Protein")
+      )
+    )
 
   count_df <- discordance_df %>%
     filter(Treatment != "Ctrl") %>%
@@ -628,9 +662,13 @@ plot_discordance_profiles_zscore <- function(discordance_df, output_path,
     species_levels
   ))
 
-  p <- .build_profile_plot(df, count_df, "zscore", "Z-score (SD from Ctrl)",
-                           treatment_order, species_filter, species_labeller,
-                           threshold_band = z_threshold)
+  p <- .build_profile_plot(
+    df, count_df, "zscore", "Z-score",
+    treatment_order, species_filter, species_labeller,
+    cluster_spacing = cluster_spacing,
+    species_spacing = species_spacing,
+    threshold_band = z_threshold
+  )
 
   g <- colour_cluster_strips(ggplot_gtable(ggplot_build(p)))
   wrap_elements(g)
@@ -780,7 +818,8 @@ plot_enrichment_dotplot <- function(
   enrichment_results,
   fdr_threshold = 0.05,
   top_n = NULL,
-  output_path = NULL
+  output_path = NULL,
+  cluster_spacing = 0.2
 ) {
   plot_df <- map_dfr(names(enrichment_results), function(species) {
     map_dfr(names(enrichment_results[[species]]), function(cl) {
@@ -840,30 +879,24 @@ plot_enrichment_dotplot <- function(
                           breaks = c(15, 30, 45, 60, 75, 90)) +
     scale_x_discrete(labels = species_labels) +
     labs(x = NULL, y = NULL) +
-    theme_bw(base_size = 11) +
+    theme_publication(base_size = 32, legend_position = "right") +
     theme(
-      axis.text.x = element_text(angle = 45, hjust = 1, face = "italic", size = 11),
-      axis.text.y = element_text(size = 12),
-      strip.text = element_text(size = 12, face = "bold", colour = "white"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
       strip.background = element_rect(fill = "grey40"),
-      panel.grid.major = element_blank(),
-      panel.grid.minor = element_blank(),
-      panel.border = element_rect(colour = "grey70"),
-      legend.position = "right",
-      legend.title = element_text(size = 14),
-      legend.text = element_text(size = 12),
-      legend.key.size = unit(0.4, "cm")
+      panel.spacing.x = unit(cluster_spacing, "cm")
     )
 
   g <- colour_cluster_strips(ggplot_gtable(ggplot_build(p)))
   final <- wrap_elements(g)
 
   if (!is.null(output_path)) {
-    n_terms <- n_distinct(plot_df$Description)
+    n_terms   <- n_distinct(plot_df$Description)
+    n_clusters <- n_distinct(plot_df$cluster)
+    out_file  <- file.path(output_path, "enrichment_dotplot")
     save_plot(final,
               filepath = file.path(output_path, "enrichment_dotplot"),
-              width = 4 * length(unique(plot_df$cluster)),
-              height = max(6, n_terms * 0.3))
+              width = max(24, n_clusters * 3),
+              height = max(8,  n_terms * 0.35 + 2))
     message("Enrichment dotplot saved: ",
             file.path(output_path, "enrichment_dotplot"), MSG_FIG_FORMAT)
   }
@@ -873,47 +906,47 @@ plot_enrichment_dotplot <- function(
 
 # Filter all three dataframes to one treatment (and optionally one species)
 filter_treatment <- function(treat, species = NULL) {
-    list(
-        discordance = discordance_df %>%
-            filter(Treatment == treat,
-                   if (!is.null(species)) Species == species else TRUE),
-        prot        = zscore_protQ_df %>%
-            filter(Treatment == treat,
-                   if (!is.null(species)) Species == species else TRUE),
-        rna         = zscore_tpm_df %>%
-            filter(Treatment == treat,
-                   if (!is.null(species)) Species == species else TRUE)
-    )
+  list(
+    discordance = discordance_df %>%
+      filter(Treatment == treat,
+             if (!is.null(species)) Species == species else TRUE),
+    prot = zscore_protQ_df %>%
+      filter(Treatment == treat,
+             if (!is.null(species)) Species == species else TRUE),
+    rna = zscore_tpm_df %>%
+      filter(Treatment == treat,
+             if (!is.null(species)) Species == species else TRUE)
+  )
 }
 
 # Build one combined-species plot for one treatment (no legend, title = treat)
 make_treatment_row <- function(treat, show_legend = FALSE) {
-    d <- filter_treatment(treat)
-    plots <- plot_discordance_scatter_zscore(
-        d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
-    )
-    wrap_plots(plots, nrow = 1) +
-        plot_layout(guides = "collect") +
-        plot_annotation(
-            title = treat,
-            theme = theme(plot.title = element_text(face = "bold", size = 10))
-        ) &
-        theme(legend.position = if (show_legend) "right" else "none")
+  d <- filter_treatment(treat)
+  plots <- plot_discordance_scatter_zscore(
+    d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
+  )
+  wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect") +
+    plot_annotation(
+      title = treat,
+      theme = theme(plot.title = element_text(face = "bold", size = 10))
+    ) &
+    theme(legend.position = if (show_legend) "right" else "none")
 }
 
 # Extract cluster-fill legend only (no starshape) from a plot
 extract_cluster_legend <- function(treat) {
-    d <- filter_treatment(treat)
-    p <- plot_discordance_scatter_zscore(
-        d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
-    )[[1]] +
-        theme(legend.position = "right") +
-        guides(
-            starshape = "none",   # remove shape legend
-            fill      = guide_legend(
-                override.aes = list(starshape = 15, colour = "white",
-                                    size = 3, alpha = 1)
-            )
-        )
-    cowplot::get_legend(p) %>% wrap_elements()
+  d <- filter_treatment(treat)
+  p <- plot_discordance_scatter_zscore(
+    d$discordance, d$prot, d$rna, SUPP_OUTPUT_PATH
+  )[[1]] +
+    theme(legend.position = "right") +
+    guides(
+      starshape = "none",   # remove shape legend
+      fill = guide_legend(
+        override.aes = list(starshape = 15, colour = "white",
+                            size = 3, alpha = 1)
+      )
+    )
+  cowplot::get_legend(p) %>% wrap_elements()
 }
