@@ -236,7 +236,7 @@ filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
 #'
 #' @param tmt_data A tibble with Species, Replicate, and Treatment columns
 #' @return Filtered tibble with complete proteins only
-filter_complete_proteins <- function(tmt_data) {
+filter_complete_proteins <- function(tmt_data, protQ_value = NULL) {
     # Get the total number of unique Species-Replicate-Treatment combinations
     n_conditions <- tmt_data %>%
         distinct(Replicate, Treatment) %>%
@@ -248,7 +248,13 @@ filter_complete_proteins <- function(tmt_data) {
     n_before <- nrow(all_proteins)
 
     # Keep only proteins that appear in all conditions
-    filtered <- tmt_data %>%
+    if (!is.null(protQ_value)) {
+        filtered <- tmt_data %>%
+            filter(!is.na(.data[[protQ_value]]))
+    } else {
+        filtered <- tmt_data
+    }
+    filtered <- filtered %>%
         group_by(Species, Protein_id) %>%
         filter(n_distinct(paste(Replicate, Treatment, sep = "_")) == n_conditions) %>%
         ungroup()

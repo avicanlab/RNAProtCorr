@@ -69,33 +69,31 @@ tag_direction <- function(value, threshold, pval = NULL, pval_threshold = NULL) 
 #' @return Tibble with cluster column added.
 assign_clusters <- function(joined) {
   protein_pattern <- joined %>%
-    group_by(Species, Protein_id) %>%
+    group_by(Species, Protein_id, Treatment) %>%
     summarise(
       rna_ever_down = any(rna_sig == "down"),
       rna_ever_up = any(rna_sig == "up"),
-      rna_ever_changed = any(rna_sig != "unchanged"),
+      rna_ever_unchanged = any(rna_sig == "unchanged"),
       prot_ever_down = any(prot_sig == "down"),
       prot_ever_up = any(prot_sig == "up"),
-      prot_ever_changed = any(prot_sig != "unchanged"),
+      prot_ever_unchanged = any(prot_sig == "unchanged"),
       .groups = "drop"
-    ) %>%
+    )
+  protein_pattern <- protein_pattern %>%
     mutate(
       cluster = case_when(
-        rna_ever_down &
-          !rna_ever_up &
-          !prot_ever_changed ~ "Cluster 1",
-        rna_ever_down & !rna_ever_up & prot_ever_up ~ "Cluster 2",
-        !rna_ever_changed & prot_ever_down ~ "Cluster 3",
-        !rna_ever_changed & prot_ever_up ~ "Cluster 4",
-        rna_ever_up & !rna_ever_down & prot_ever_down ~ "Cluster 5",
-        rna_ever_up &
-          !rna_ever_down &
-          !prot_ever_changed ~ "Cluster 6",
+        rna_ever_down & !rna_ever_up & !rna_ever_unchanged & !prot_ever_down & !prot_ever_up & prot_ever_unchanged ~ "Cluster 1",
+        rna_ever_down & !rna_ever_up & !rna_ever_unchanged & !prot_ever_down & prot_ever_up & !prot_ever_unchanged ~ "Cluster 2",
+        !rna_ever_down & !rna_ever_up & rna_ever_unchanged & prot_ever_down & !prot_ever_up & !prot_ever_unchanged ~ "Cluster 3",
+        !rna_ever_down & !rna_ever_up & rna_ever_unchanged & !prot_ever_down & prot_ever_up & !prot_ever_unchanged ~ "Cluster 4",
+        !rna_ever_down & rna_ever_up & !rna_ever_unchanged & prot_ever_down & !prot_ever_up & !prot_ever_unchanged ~ "Cluster 5",
+        !rna_ever_down & rna_ever_up & !rna_ever_unchanged & !prot_ever_down & !prot_ever_up & prot_ever_unchanged ~ "Cluster 6",
         TRUE ~ NA_character_
       )
-    ) %>%
+    )
+  protein_pattern <- protein_pattern %>%
     filter(!is.na(cluster)) %>%
-    dplyr::select(Species, Protein_id, cluster)
+    dplyr::select(Species, Protein_id, Treatment, cluster)
 }
 
 #' Colour cluster strip backgrounds in a gtable
@@ -277,11 +275,15 @@ build_discordance_clusters_zscore <- function(
     mutate(prot_sig = tag_direction(zscore, z_threshold)) %>%
     dplyr::select(Species, Protein_id, Treatment, prot_z = zscore, prot_sig)
 
-  joined <- inner_join(rna_df, prot_df, by = c("Species", "Protein_id", "Treatment"))
+  joined <- inner_join(
+    rna_df, prot_df, by = c("Species", "Protein_id", "Treatment")
+  ) %>%
+    distinct()
   protein_pattern <- assign_clusters(joined)
 
+  joined <- joined %>%
+    inner_join(protein_pattern, by = c("Species", "Protein_id", "Treatment"))
   joined %>%
-    inner_join(protein_pattern, by = c("Species", "Protein_id")) %>%
     dplyr::select(Species, Protein_id, Treatment,
                   rna_z, prot_z, rna_sig, prot_sig, cluster) %>%
     arrange(Species, cluster, Protein_id, Treatment)
@@ -338,7 +340,7 @@ build_discordance_clusters_zscore <- function(
     scale_x_continuous(limits = x_lim, breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) +
     scale_y_continuous(limits = y_lim, breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) +
     labs(title = format_species_title(species), x = x_lab, y = y_lab) +
-    theme_publication(legend_position = "right") +
+    theme_publication(base_size = 10, legend_position = "right") +
     theme(
       legend.spacing = unit(0.2, "cm"),      # space between legend keys
       legend.margin = margin(0.25, 0.25, 0.25, 0.25), # margin around each legend
@@ -460,7 +462,7 @@ plot_discordance_scatter_zscore <- function(
 
     if (save_per_species) {
       output_file <- file.path(output_path, species,
-                               paste0(if (!is.null(prefix)) paste0(prefix, "_") else "", "discordance_scatter_zscore"))
+                               paste0(if (!is.null(prefix)) paste0(prefix, "_") else "", "discordance_scatter"))
       save_plot(p, output_file, width = 6, height = 5)
       message("Z-score scatter saved: ", output_file, MSG_FIG_FORMAT)
     }
@@ -890,13 +892,13 @@ plot_enrichment_dotplot <- function(
   final <- wrap_elements(g)
 
   if (!is.null(output_path)) {
-    n_terms   <- n_distinct(plot_df$Description)
+    n_terms <- n_distinct(plot_df$Description)
     n_clusters <- n_distinct(plot_df$cluster)
-    out_file  <- file.path(output_path, "enrichment_dotplot")
+    out_file <- file.path(output_path, "enrichment_dotplot")
     save_plot(final,
               filepath = file.path(output_path, "enrichment_dotplot"),
               width = max(24, n_clusters * 3),
-              height = max(8,  n_terms * 0.35 + 2))
+              height = max(8, n_terms * 0.35 + 2))
     message("Enrichment dotplot saved: ",
             file.path(output_path, "enrichment_dotplot"), MSG_FIG_FORMAT)
   }
