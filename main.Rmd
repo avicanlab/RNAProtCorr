@@ -38,6 +38,7 @@ library(fs)
 library(purrr)
 library(readxl)
 library(patchwork)
+library(cowplot)
 library(stringr)
 library(tidyverse)
 library(showtext)
@@ -126,7 +127,8 @@ dirs <- list(
   PROTEIN_DATA = file.path("DATA", "Proteome"),
   PROTEIN_FASTA = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
   ESSENTIAL_GENES = file.path("DATA", "Essential genes"),
-  ENRICHMENT = file.path("DATA", "Enrichment")
+  ENRICHMENT = file.path("DATA", "Enrichment"),
+  ORA = file.path("DATA", "ORA")
 )
 
 walk(dirs, check_dir, return_error = TRUE)
@@ -908,18 +910,28 @@ print(summary_table)
 ```
 ```{r zscore-scatter-plot}
 source("sources/discordant_analyses.R")
-# invisible(plot_discordance_scatter_zscore(
-#   discordance_df, zscore_protQ_df, zscore_tpm_df,
-#   OUTPUT_PATH, save_per_species = TRUE
-# ))
+invisible(plot_discordance_scatter_zscore(
+  discordance_df, zscore_protQ_df, zscore_tpm_df,
+  OUTPUT_PATH, save_per_species = TRUE
+))
 
-combined_scatter <- wrap_plots(
-  plot_discordance_scatter_zscore(
+plots <- plot_discordance_scatter_zscore(
     discordance_df, zscore_protQ_df, zscore_tpm_df,
     OUTPUT_PATH, zlim = c(-5, 5)
-  ), nrow = 1) +
-  plot_layout(guides = "collect", axes = "collect") &
-        theme(legend.position = "top")
+)
+
+legend <- get_legend(
+    plots[[1]] + theme(legend.position = "top")
+)
+
+plots_no_legend <- map(plots, ~ .x + theme(legend.position = "none"))
+
+combined_scatter <- plot_grid(
+    legend,
+    plot_grid(plotlist = plots_no_legend, nrow = 1),
+    ncol = 1,
+    rel_heights = c(0.1, 0.9)
+)
 
 print(combined_scatter)
 save_plot(combined_scatter, file.path(OUTPUT_PATH, "discordance_scatter"), width = 12, height = 5)
@@ -986,10 +998,143 @@ print(p)
 ## Stress specific stimulon genes and all genes mRNA-protein level correlation
 
 ```{r stimulon-correlation}
+stimulon_tpm_df <- tpm_log2_data %>%
+  semi_join(stimulon_df, by = c("Species", "Protein_id")) %>%
+  filter(is.finite(mean_log2_TPM))
+stimulon_protQ_df <- protQ_data %>%
+  semi_join(stimulon_df, by = c("Species", "Protein_id")) %>%
+  filter(is.finite(.data[[protQ_meanlog2]]))
 
+corr_stimulon_rna_prot <- calculate_correlation(
+  stimulon_tpm_df, stimulon_protQ_df, protQ_meanlog2
+)
+
+p <- plot_essential_vs_all_correlation(
+  corr_rna_prot,
+  corr_stimulon_rna_prot,
+  PROTEIN_QUANTIFICATION_METHOD,
+  OUTPUT_PATH
+)
+print(p)
+output_file <- file.path(
+  OUTPUT_PATH,
+  paste0(
+    PROTEIN_QUANTIFICATION_METHOD,
+    "_stimulon_vs_all_correlation"
+  )
+)
+save_plot(
+  p,
+  output_file,
+  width = 16,
+  height = 5,
+  units = "in"
+)
+message(
+  "mRNA-Protein correlation all genes vs stimulon genes combined figure saved: ",
+  output_file,
+  MSG_FIG_FORMAT
+)
 ```
 ## ORA of osmotic stress-specific mRNA–protein associations across three species.
 ```{r ora-analysis}
+source("sources/ora_analysis.R")
+
+ORA_OUTPUT <- file.path(OUTPUT_PATH, "ORA")
+dir.create(ORA_OUTPUT)
+
+connections_ALL_SE <- read.csv2(file.path(ORA, "connections_ALL_SE.csv"))
+connections_ALL_SA <- read.csv2(file.path(ORA, "connections_ALL_SA.csv"))
+connections_ALL_YP <- read.csv2(file.path(ORA, "connections_ALL_YP.csv"))
+
+results_SE <- process_organism(connections_ALL_SE, "SE", ORA_OUTPUT)
+results_SA <- process_organism(connections_ALL_SA, "SA", ORA_OUTPUT)
+results_YP <- process_organism(connections_ALL_YP, "YP", ORA_OUTPUT)
+
+create_gmt(
+  term2gene_file = file.path(ORA, "SE_TERM2GENE.txt"),
+  term2name_file = file.path(ORA, "SE_TERM2NAME.txt"),
+  output_gmt_file = file.path(ORA_OUTPUT, "Updated_SE_geneset.gmt")
+)
+
+# SA
+create_gmt(
+  term2gene_file = file.path(ORA, "SA_TERM2GENE.txt"),
+  term2name_file = file.path(ORA, "SA_TERM2NAME.txt"),
+  output_gmt_file = file.path(ORA_OUTPUT, "Updated_SA_geneset.gmt")
+)
+
+# YP
+create_gmt(
+  term2gene_file = file.path(ORA, "YP_TERM2GENE.txt"),
+  term2name_file = file.path(ORA, "YP_TERM2NAME.txt"),
+  output_gmt_file = file.path(ORA_OUTPUT, "Updated_YP_geneset.gmt")
+)
+
+organisms <- c("SE", "SA", "YP")
+
+for (condition in organisms) {
+
+  message("Running ORA for: ", condition)
+
+  gmt_pathways <- read.gmt(file.path(ORA_OUTPUT, paste0("Updated_", condition, "_geneset.gmt")))
+  term2name <- read.delim(file.path(ORA, paste0(condition, "_TERM2NAME.txt")), header = TRUE)
+
+  genes_CTRL <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_CTRL_", condition, ".csv")))[[1]]
+  genes_OSS  <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_OSS_", condition, ".csv")))[[1]]
+
+  unique_genes_CTRL_only_notOSS <- setdiff(genes_CTRL, genes_OSS)
+  unique_genes_OSS_only         <- setdiff(genes_OSS, genes_CTRL)
+
+  ora_CTRL_dep <- runORA(genes_CTRL, "CTRL dependent", gmt_pathways, term2name)
+  ora_OSS_dep  <- runORA(genes_OSS,  "OSS dependent",  gmt_pathways, term2name)
+
+  ora_dependent <- bind_rows(ora_CTRL_dep, ora_OSS_dep)
+
+  ora_CTRL_OSS     <- runORA(unique_genes_CTRL_only_notOSS, "CTRL specific", gmt_pathways, term2name)
+  ora_OSS_specific <- runORA(unique_genes_OSS_only, "OSS specific", gmt_pathways, term2name)
+
+  ora_specific <- bind_rows(ora_CTRL_OSS, ora_OSS_specific) %>%
+    filter(!is.na(Description))
+
+  assign(paste0("ora_dependent_", condition), ora_dependent)
+  assign(paste0("ora_specific_", condition), ora_specific)
+
+  write.csv(
+    ora_dependent,
+    file.path(ORA_OUTPUT, paste0("ORA_dependent_CTRL_OSS_", condition, ".csv")),
+    row.names = FALSE
+  )
+
+  write.csv(
+    ora_specific,
+    file.path(ORA_OUTPUT, paste0("ORA_specific_CTRL_OSS_", condition, ".csv")),
+    row.names = FALSE
+  )
+}
+
+combined_dependent <- combine_ORA_objects("dependent")
+combined_specific  <- combine_ORA_objects("specific")
+
+write.csv(combined_dependent, file.path(OUTPUT_PATH, "ORA_dependent_combined_CTRL_OSS.csv"), row.names = FALSE)
+write.csv(combined_specific,  file.path(OUTPUT_PATH, "ORA_specific_combined_CTRL_OSS.csv"), row.names = FALSE)
+
+plot_oss_spec  <- plot_ORA_dotplot(combined_specific,  condition = "OSS specific",  gap = 0.30)
+plot_oss_dep   <- plot_ORA_dotplot(combined_dependent, condition = "OSS dependent", gap = 0.30)
+plot_ctrl_dep   <- plot_ORA_dotplot(combined_dependent, condition = "CTRL dependent", gap = 0.30)
+plot_ctrl_spec   <- plot_ORA_dotplot(combined_specific, condition= "CTRL specific", gap =0.30)
+
+ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_OSS_specific_dotplot.png"), plot_oss_spec, width = 5, height = 8, dpi = 300)
+print(plot_oss_spec)
+
+ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_OSS_dependent_dotplot.png"), plot_oss_dep, width = 5, height = 8, dpi = 300)
+print(plot_oss_dep)
+
+ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_CTRL_dependent_dotplot.png"), plot_ctrl_dep, width = 5, height = 8, dpi = 300)
+print(plot_ctrl_dep)
+
+ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_CTRL_specific_dotplot.png"), plot_ctrl_spec, width = 5, height = 8, dpi = 300)
+print(plot_ctrl_spec)
 ```
 
 # Supplementary Tables & figures

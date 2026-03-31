@@ -195,6 +195,74 @@ plot_essential_distribution <- function(
     theme(legend.position = "top")
 }
 
+plot_stimulon_vs_all_correlation <- function(
+corr_all_df, corr_stimulon_df, measurement, output_path
+) {
+  # Join both correlation sets by treatment
+  plot_df <- inner_join(
+    corr_all_df %>%
+      distinct(Species, Treatment, R) %>%
+      dplyr::rename(R_all = R),
+    corr_stimulon_df %>%
+      distinct(Species, Treatment, R) %>%
+      dplyr::rename(R_stimulon = R),
+    by = c("Species", "Treatment")
+  )
+
+  plots <- plot_df %>%
+    group_by(Species) %>%
+    group_map(function(sp_df, sp_key) {
+      species <- sp_key$Species
+
+      display <- PLOT_SPECIES_NAMES[species]
+      display <- ifelse(is.na(display), gsub("_", " ", species), display)
+      parts <- strsplit(display, " ")[[1]]
+      title_sp <- format_species_title(species)
+
+      p <- ggplot(sp_df, aes(x = R_all, y = R_stimulon, color = Treatment)) +
+        geom_abline(
+          slope = 1,
+          intercept = 0,
+          linetype = "dashed",
+          color = "grey60",
+          linewidth = 0.6
+        ) +
+        geom_point(size = 4, alpha = 0.9) +
+        scale_color_manual(values = setNames(
+          scales::hue_pal()(nrow(sp_df)),
+          sp_df$Treatment
+        )) +
+        coord_fixed(
+          ratio = 1,
+          xlim = c(0.45, 0.9),
+          ylim = c(0.45, 0.9)
+        ) +
+        labs(
+          title = title_sp,
+          x = "All genes'\nmRNA-protein level correlation",
+          y = "Essential genes'\nmRNA-protein level correlation",
+          color = "Treatment"
+        ) +
+        theme_publication(legend_position = "right") +
+        theme(
+          plot.title = element_text(hjust = 0.5),
+          axis.title = element_text(lineheight = 0.5)
+        )
+
+      save_plot(
+        plot = p,
+        filepath = file.path(output_path, species, paste0(measurement, "_stimulon_vs_all_correlation")),
+        width = 5,
+        height = 5
+      )
+      p
+    })
+
+  wrap_plots(plots, nrow = 1) +
+    plot_layout(guides = "collect", axes = "collect_y") &
+    theme(legend.position = "right")
+}
+
 plot_essential_vs_all_correlation <- function(
   corr_all_df, corr_essential_df, measurement, output_path
 ) {
