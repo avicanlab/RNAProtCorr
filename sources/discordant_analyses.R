@@ -797,8 +797,6 @@ load_enrichment_data <- function(species) {
   list(
     term2gene = read_excel(file.path(ENRICHMENT, paste0("TERM2GENE_", abbv, ".xlsx")),
                            col_names = TRUE),
-    term2name = read_excel(file.path(ENRICHMENT, paste0("TERM2NAME_", abbv, ".xlsx")),
-                           col_names = TRUE),
     universe = read_csv(file.path(ENRICHMENT, paste0("universe_", abbv, ".csv")),
                         col_names = TRUE, show_col_types = FALSE) %>% pull(1)
   )
@@ -849,7 +847,7 @@ run_enricher <- function(
     message("    No significant terms found.")
     return(NULL)
   }
-  result
+  result@result
 }
 
 #' Run Enrichment Analysis per Cluster and Species
@@ -867,17 +865,17 @@ run_enrichment_all <- function(
   pval_cutoff = 0.05,
   qval_cutoff = 0.2,
   min_gs_size = 5,
-  max_gs_size = 500,
-  output_path = NULL
+  max_gs_size = 500
 ) {
   species_list <- unique(discordance_df$Species)
   clusters <- sort(unique(discordance_df$cluster))
-
-  map(species_list, function(species) {
+  term2name <- read_excel(file.path(ENRICHMENT, "GO_terms_from_database.xlsx")) %>%
+    filter(Obsolete == FALSE)
+  map_dfr(species_list, function(species) {
     message("\nRunning enrichment for: ", species)
     annot <- load_enrichment_data(species)
 
-    map(clusters, function(cl) {
+    map_dfr(clusters, function(cl) {
       message("  Cluster: ", cl)
 
       gene_ids <- discordance_df %>%
@@ -887,27 +885,20 @@ run_enrichment_all <- function(
 
       message("    Genes: ", length(gene_ids))
 
-      result <- run_enricher(
+      run_enricher(
         gene_ids = gene_ids,
         term2gene = annot$term2gene,
-        term2name = annot$term2name,
+        term2name = term2name,
         universe = annot$universe,
         pval_cutoff = pval_cutoff,
         qval_cutoff = qval_cutoff,
         min_gs_size = min_gs_size,
         max_gs_size = max_gs_size
-      )
-
-      if (!is.null(result) && !is.null(output_path)) {
-        out_file <- file.path(output_path, species,
-                              paste0(species, "_", cl, "_enrichment.tsv"))
-        write.table(as.data.frame(result), out_file,
-                    sep = "\t", row.names = FALSE, quote = FALSE)
-        message("    Saved: ", out_file)
-      }
-      result
-    }) %>% setNames(clusters)
-  }) %>% setNames(species_list)
+      ) %>% mutate(Cluster = cl)
+    }) %>% mutate(Species = species)
+  }) %>%
+    inner_join(term2name, by = c("ID")) %>%
+    mutate(Protein_ID = geneID)
 }
 
 #' Plot Enrichment Dot Plot — All Clusters and Species
@@ -925,18 +916,11 @@ plot_enrichment_dotplot <- function(
   output_path = NULL,
   cluster_spacing = 0.2
 ) {
-  plot_df <- map_dfr(names(enrichment_results), function(species) {
-    map_dfr(names(enrichment_results[[species]]), function(cl) {
-      res <- enrichment_results[[species]][[cl]]
-      if (is.null(res)) return(NULL)
-      as.data.frame(res) %>%
-        as_tibble() %>%
-        mutate(Species = species, cluster = cl)
-    })
-  }) %>%
+  plot_df <- enrichment_results %>%
+    filter(namespace == "Biological Process") %>%
     mutate(
       neg_log10_fdr = -log10(p.adjust),
-      cluster = factor(cluster, levels = names(CLUSTER_COLOURS)),
+      cluster = factor(Cluster, levels = names(CLUSTER_COLOURS)),
       Species = factor(Species, levels = sort(unique(Species)))
     )
 
@@ -979,11 +963,11 @@ plot_enrichment_dotplot <- function(
     scale_colour_gradient(low = "lightsalmon", high = "darkred",
                           name = "-log10(FDR)",
                           guide = guide_colourbar(barwidth = 0.8, barheight = 4, ticks = FALSE)) +
-    scale_size_continuous(name = "Count", range = c(1, 8),
+    scale_size_continuous(name = "Count", range = c(3, 12),
                           breaks = c(15, 30, 45, 60, 75, 90)) +
     scale_x_discrete(labels = species_labels) +
     labs(x = NULL, y = NULL) +
-    theme_publication(base_size = 32, legend_position = "right") +
+    theme_publication(base_size = 20, legend_position = "right") +
     theme(
       axis.text.x = element_text(angle = 45, hjust = 1),
       strip.background = element_rect(fill = "grey40"),
@@ -1000,7 +984,7 @@ plot_enrichment_dotplot <- function(
     save_plot(final,
               filepath = file.path(output_path, "enrichment_dotplot"),
               width = max(24, n_clusters * 3),
-              height = max(8, n_terms * 0.35 + 2))
+              height = max(12, n_terms * 0.35 + 2))
     message("Enrichment dotplot saved: ",
             file.path(output_path, "enrichment_dotplot"), MSG_FIG_FORMAT)
   }
