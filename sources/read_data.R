@@ -299,7 +299,13 @@ read_essential_vec <- function(filepath) {
         as.vector()
 }
 
-
+read_stimulon_vec <- function(filepath) {
+    read_excel(filepath, skip=1) %>%
+      select("Locus Tag") %>%
+        as.list() %>%
+        unlist() %>%
+        as.vector()
+}
 #' Read DEG Results for one species Read Counts Excel File
 #'
 #' @description

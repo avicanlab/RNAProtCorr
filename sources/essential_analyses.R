@@ -76,7 +76,7 @@ plot_essential_distribution_per_treatment <- function(
               "text",
               x = Inf, y = Inf,
               label = format.pval(p_value, digits = 2, eps = .Machine$double.xmin),
-              hjust = 1.1, vjust = 1.5, size = 3.5, fontface = "italic"
+              hjust = 1.1, vjust = 1.5, size = 6, fontface = "italic"
             ) +
             labs(
               title = treatment, # This is the SUB-title (Treatment)
@@ -86,7 +86,7 @@ plot_essential_distribution_per_treatment <- function(
             ) +
             theme_publication() +
             theme(
-              plot.title = element_text(face = "italic", size = 14, hjust = 0.5),
+              plot.title = element_text(face = "italic", hjust = 0.5),
               legend.position = "none" # Hide individual legends initially
             )
           p
@@ -97,7 +97,10 @@ plot_essential_distribution_per_treatment <- function(
         plot_annotation(
           title = title_sp,
           theme = theme(
-            plot.title = element_text(size = 20, face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
+            plot.title = element_text(
+              face = "bold.italic",
+              hjust = 0.5,
+              margin = margin(b = 20))
           )
         ) +
         plot_layout(guides = "collect", axes = "collect") &
@@ -257,10 +260,7 @@ corr_all_df, corr_stimulon_df, measurement, output_path
       )
       p
     })
-
-  wrap_plots(plots, nrow = 1) +
-    plot_layout(guides = "collect", axes = "collect_y") &
-    theme(legend.position = "right")
+  plots
 }
 
 plot_essential_vs_all_correlation <- function(

@@ -202,9 +202,13 @@ plot_protein_length <- function(fasta_lengths_df,
   species_lvls <- sort(unique(fasta_lengths_df$Species))
   n_sp <- length(species_lvls)
   pal <- setNames(species_colours[seq_len(n_sp)], species_lvls)
+  x_labels <- setNames(
+    lapply(species_lvls, format_species_title, linebreak = TRUE),
+    species_lvls
+  )
 
   df <- fasta_lengths_df %>%
-    filter(!is.na(protein_length), protein_length > 0) %>%
+    filter(!is.na(protein_length), protein_length > 10) %>%
     mutate(Species = factor(Species, levels = species_lvls))
 
   # Median labels for annotation
@@ -256,13 +260,13 @@ plot_protein_length <- function(fasta_lengths_df,
       colour = "white",
       inherit.aes = FALSE
     ) +
-
     scale_fill_manual(values = pal) +
     scale_colour_manual(values = pal) +
+    scale_x_discrete(labels = x_labels) +
     scale_y_continuous(
       labels = scales::comma,
       trans = if (log_scale) "log10" else "identity",
-      name = if (log_scale) "Protein length (aa, log\u2081\u2080)"
+      name = if (log_scale) "Protein length (aa, log10)"
       else           "Protein length (aa)"
     ) +
     coord_flip() +
@@ -270,7 +274,8 @@ plot_protein_length <- function(fasta_lengths_df,
       title = title,
       x = NULL,
     ) +
-    theme_publication()
+    theme_publication(base_size = 32) +
+    theme(legend.position = "none")
 
   p
 }
@@ -366,17 +371,15 @@ plot_peptide_length <- function(all_raw_digests,
     ) +
 
     labs(
-      title = "Tryptic peptide length distribution",
       subtitle = sprintf(
         "In silico digest  \u2022  total = %s peptides  \u2022  %s%% retained after length filter",
         scales::comma(n_total), pct_kept
       )
     ) +
 
-    theme_publication() +
+    theme_publication(base_size = 32) +
     theme(
       legend.position = c(0.82, 0.88),
-      legend.text = element_text(size = 9),
       legend.key.size = unit(0.55, "lines"),
       legend.background = element_rect(fill = "white", colour = NA)
     )
@@ -402,18 +405,10 @@ make_ibaq_figure <- function(fasta_lengths_df,
 
   fig <- p1 / p2 +
     patchwork::plot_annotation(
-      title = "Justification for iBAQ normalisation",
-      subtitle = paste0(
-        "Protein length heterogeneity (top) directly determines the number of ",
-        "observable tryptic peptides (bottom),\n",
-        "biasing raw spectral counts toward longer proteins. ",
-        "iBAQ divides intensity by the observable peptide count to remove this bias."
-      ),
-      caption = "In silico trypsin digestion  |  0 missed cleavages  |  observable window 6\u201330 aa",
-      theme = theme_publication() +
+      theme = theme_publication(base_size = 32) +
         theme(
-          plot.title = element_text(size = 13, face = "bold"),
-          plot.subtitle = element_text(size = 10, colour = "#5f5e5a",
+          plot.title = element_text(face = "bold"),
+          plot.subtitle = element_text(colour = "#5f5e5a",
                                        lineheight = 1.4)
         )
     ) &
@@ -657,12 +652,12 @@ ibaq_quantification <- function(
   }
 
   # ── Pearson correlation ───────────────────────────────────────────────────
-  ct    <- cor.test(d$x, d$y, method = "pearson")
+  ct <- cor.test(d$x, d$y, method = "pearson")
   R_val <- round(ct$estimate, 2)
   p_val <- ct$p.value
   p_fmt <- if (p_val < 0.001) "0.00e+00" else sprintf("%.3f", p_val)
 
-  label_txt <- sprintf("Pearson correlation: %.2f\np-value: %s", R_val, p_fmt)
+  label_txt <- sprintf("R: %.2f\np-val: %s", R_val, p_fmt)
 
   # ── Axis limits (common, padded) ──────────────────────────────────────────
   lo <- floor(min(c(d$x, d$y)))
@@ -684,12 +679,12 @@ ibaq_quantification <- function(
     # Stats label
     annotate("text",
              x = ann_x, y = ann_y,
-             label      = label_txt,
-             hjust      = 0, vjust = 1,
-             size       = 2.4,
-             colour     = "#2c2c2a",
-             lineheight = 1.35,
-             family     = "sans") +
+             label = label_txt,
+             hjust = 0, vjust = 1,
+             size = 10,
+             colour = "#2c2c2a",
+             lineheight = 0.35,
+             family = "Arial") +
 
     scale_x_continuous(limits = c(lo, hi),
                        breaks = scales::pretty_breaks(n = 4)) +
@@ -700,10 +695,10 @@ ibaq_quantification <- function(
 
     labs(
       title = sprintf("%s vs %s", sample_x, sample_y),
-      x     = sample_x,
-      y     = sample_y
+      x = sample_x,
+      y = sample_y
     ) +
-    theme_publication(base_size=10)
+    theme_publication(base_size = 40)
 }
 
 
@@ -721,8 +716,8 @@ ibaq_quantification <- function(
 # =============================================================================
 plot_replicate_correlations <- function(df,
                                         species_name,
-                                        sample_col  = NULL,
-                                        colour_map  = NULL) {
+                                        sample_col = NULL,
+                                        colour_map = NULL) {
 
   # ── Build a full sample label if not already a column ─────────────────────
   if (!is.null(sample_col)) {
@@ -733,25 +728,25 @@ plot_replicate_correlations <- function(df,
   }
 
   treatments <- sort(unique(df$Treatment))
-  n_tr       <- length(treatments)
+  n_tr <- length(treatments)
 
   # Auto colour map
   if (is.null(colour_map)) {
-    pal        <- treatment_colours[((seq_len(n_tr) - 1) %% length(treatment_colours)) + 1]
+    pal <- treatment_colours[((seq_len(n_tr) - 1) %% length(treatment_colours)) + 1]
     colour_map <- setNames(pal, treatments)
   }
 
   # ── Pivot to wide: one column per sample label ────────────────────────────
   wide <- df %>%
     select(Protein_id, .sample, iBAQ_log2) %>%
-    pivot_wider(names_from  = .sample,
+    pivot_wider(names_from = .sample,
                 values_from = iBAQ_log2,
-                values_fn   = mean)   # collapse duplicates if any
+                values_fn = mean)   # collapse duplicates if any
 
   # ── Build panel grid: treatments (rows) × pairs (cols) ───────────────────
   all_rows <- map(treatments, function(trt) {
 
-    trt_df  <- df %>% filter(Treatment == trt)
+    trt_df <- df %>% filter(Treatment == trt)
     samples <- sort(unique(trt_df$.sample))
 
     if (length(samples) < 2) {
@@ -777,17 +772,19 @@ plot_replicate_correlations <- function(df,
   }
 
   # ── Assemble full figure (treatments stacked) ─────────────────────────────
-  fig <- wrap_plots(all_rows, ncol = 2) +
+  fig <- wrap_plots(all_rows, ncol = 2) &
+    theme(plot.margin = margin(2, 4, 2, 4))
+
+  fig <- fig +
     plot_annotation(
-      title   = species_name,
-      caption = "log\u2082(iBAQ)  \u2022  Pearson correlation  \u2022  identity line shown",
-      theme   = theme(
-        plot.title      = element_text(size = 11, face = "bold", colour = "#2c2c2a",
-                                       family = "sans"),
-        plot.caption    = element_text(size = 7,  colour = "#888780", family = "sans"),
-        plot.background = element_rect(fill = "white", colour = NA)
-      )
+      title = species_name,
+      theme = theme_publication(base_size = 32) +
+        theme(
+          plot.title = element_text(face = "bold", colour = "#2c2c2a"),
+          plot.caption = element_text(colour = "#888780"),
+          plot.background = element_rect(fill = "white", colour = NA)
+        )
     )
 
-fig
+  fig
 }

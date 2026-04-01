@@ -3,13 +3,13 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-    rmdformats::downcute:
-        code_folding: hide
-        self_contained: true
-        thumbnails: false
-        lightbox: true
+rmdformats::downcute:
+code_folding: hide
+self_contained: true
+thumbnails: false
+lightbox: true
 pkgdown:
-  as_is: true
+as_is: true
 ---
 # How to use
 Make sure R 4.4
@@ -128,6 +128,7 @@ dirs <- list(
   PROTEIN_FASTA = file.path("DATA", "Fasta_files"), # Uncomment for iBAQ quantification
   ESSENTIAL_GENES = file.path("DATA", "Essential genes"),
   ENRICHMENT = file.path("DATA", "Enrichment"),
+  STIMULON = file.path("DATA", "Stimulons"),
   ORA = file.path("DATA", "ORA")
 )
 
@@ -154,8 +155,8 @@ list2env(c(dirs, files), envir = .GlobalEnv)
 # On most systems, showtext_auto() finds Arial automatically if you add it:
 font_add(family = "Arial", regular = "arial.ttf")
 windowsFonts(
-    mono  = windowsFont("Courier New"),
-    Arial = windowsFont("Arial")
+  mono = windowsFont("Courier New"),
+  Arial = windowsFont("Arial")
 )
 # 2. Extremely important: This activates showtext for all new plots
 showtext_auto()
@@ -415,8 +416,8 @@ quant_fn <- switch(PROTEIN_QUANTIFICATION_METHOD,
 
 quant_data <- quant_fn(tmt_data)
 completeness_result <- filter_complete_proteins(
-    quant_data, PROTEIN_QUANTIFICATION_METHOD
-    )
+  quant_data, PROTEIN_QUANTIFICATION_METHOD
+)
 protQ_data <- completeness_result$filtered_data
 removed_proteins <- completeness_result$removed_proteins
 
@@ -916,21 +917,21 @@ invisible(plot_discordance_scatter_zscore(
 ))
 
 plots <- plot_discordance_scatter_zscore(
-    discordance_df, zscore_protQ_df, zscore_tpm_df,
-    OUTPUT_PATH, zlim = c(-5, 5)
+  discordance_df, zscore_protQ_df, zscore_tpm_df,
+  OUTPUT_PATH, zlim = c(-5, 5)
 )
 
 legend <- get_legend(
-    plots[[1]] + theme(legend.position = "top")
+  plots[[1]] + theme(legend.position = "top")
 )
 
-plots_no_legend <- map(plots, ~ .x + theme(legend.position = "none"))
+plots_no_legend <- map(plots, ~.x + theme(legend.position = "none"))
 
 combined_scatter <- plot_grid(
-    legend,
-    plot_grid(plotlist = plots_no_legend, nrow = 1),
-    ncol = 1,
-    rel_heights = c(0.1, 0.9)
+  legend,
+  plot_grid(plotlist = plots_no_legend, nrow = 1),
+  ncol = 1,
+  rel_heights = c(0.1, 0.9)
 )
 
 print(combined_scatter)
@@ -942,24 +943,24 @@ source("sources/discordant_analyses.R")
 species_list <- unique(discordance_df$Species)
 
 invisible(walk(species_list, function(species) {
-    p <- plot_discordance_profiles(
-        discordance_df,
-        OUTPUT_PATH,
-        species_filter  = species,
-        cluster_spacing = 0.1
-    )
-    save_plot(
-        p,
-        file.path(OUTPUT_PATH, species, "discordance_profiles"),
-        width = 12, height =4
-    )
-    message("Profiles saved for: ", species, MSG_FIG_FORMAT)
+  p <- plot_discordance_profiles(
+    discordance_df,
+    OUTPUT_PATH,
+    species_filter = species,
+    cluster_spacing = 0.1
+  )
+  save_plot(
+    p,
+    file.path(OUTPUT_PATH, species, "discordance_profiles"),
+    width = 12, height = 4
+  )
+  message("Profiles saved for: ", species, MSG_FIG_FORMAT)
 }))
 
 combined_profiles <- plot_discordance_profiles(
-    discordance_df, OUTPUT_PATH,
-    cluster_spacing = 0.1,
-    species_spacing = 0.4   # more space between species rows
+  discordance_df, OUTPUT_PATH,
+  cluster_spacing = 0.1,
+  species_spacing = 0.4   # more space between species rows
 )
 save_plot(combined_profiles,
           file.path(OUTPUT_PATH, "discordance_profiles"),
@@ -993,29 +994,65 @@ print(p)
 # mRNA-protein level stress-specific stimulon genes under stress[
 
 ```{r stimulon-data-generation}
-# Code to generate stimulon specific data
+source("sources/read_data.R")
+stimulon_files <- list.files(STIMULON, pattern = "\\.xlsx$", full.names = TRUE)
+species_stimulon2tpm_map <- c(
+  "SE" = "Salmonella_enterica",
+  "SA" = "Staphylococcus_aureus",
+  "YP" = "Yersinia_pseudotuberculosis"
+)
+stimulon_df <- map_dfr(stimulon_files, function(file) {
+  extract <- str_extract(basename(file), "([A-Za-z]+)_stimulon_([A-Za-z]+)", group = c(1, 2))
+  species <- species_stimulon2tpm_map[extract[[1]]]
+  treatment <- extract[[2]]
+  tibble(
+    Species = species,
+    Treatment = treatment,
+    Protein_id = read_stimulon_vec(file)
+  )
+})
 ```
 ## Stress specific stimulon genes and all genes mRNA-protein level correlation
 
 ```{r stimulon-correlation}
+source("sources/essential_analyses.R")
 stimulon_tpm_df <- tpm_log2_data %>%
-  semi_join(stimulon_df, by = c("Species", "Protein_id")) %>%
+  semi_join(stimulon_df, by = c("Species", "Protein_id", "Treatment")) %>%
   filter(is.finite(mean_log2_TPM))
 stimulon_protQ_df <- protQ_data %>%
-  semi_join(stimulon_df, by = c("Species", "Protein_id")) %>%
+  semi_join(stimulon_df, by = c("Species", "Protein_id", "Treatment")) %>%
   filter(is.finite(.data[[protQ_meanlog2]]))
 
 corr_stimulon_rna_prot <- calculate_correlation(
   stimulon_tpm_df, stimulon_protQ_df, protQ_meanlog2
 )
 
-p <- plot_essential_vs_all_correlation(
+plots <- plot_stimulon_vs_all_correlation(
   corr_rna_prot,
   corr_stimulon_rna_prot,
   PROTEIN_QUANTIFICATION_METHOD,
   OUTPUT_PATH
 )
-print(p)
+legend <- get_legend(
+  plots[[1]] + theme(legend.position = "right")
+)
+
+plots_no_legend <- map(plots, ~.x + theme(legend.position = "none"))
+
+combined <- plot_grid(
+  plot_grid(
+    plotlist = plots_no_legend,
+    nrow = 3,
+    align = "v",
+    rel_heights = c(1, 1, 1)
+  ),
+  NULL,
+  legend,
+  ncol = 3,
+  rel_widths = c(0.7, 0.05, 0.25) 
+)
+
+print(combined)
 output_file <- file.path(
   OUTPUT_PATH,
   paste0(
@@ -1023,13 +1060,8 @@ output_file <- file.path(
     "_stimulon_vs_all_correlation"
   )
 )
-save_plot(
-  p,
-  output_file,
-  width = 16,
-  height = 5,
-  units = "in"
-)
+save_plot(combined, output_file, width = 6, height = 16)
+
 message(
   "mRNA-Protein correlation all genes vs stimulon genes combined figure saved: ",
   output_file,
@@ -1081,17 +1113,17 @@ for (condition in organisms) {
   term2name <- read.delim(file.path(ORA, paste0(condition, "_TERM2NAME.txt")), header = TRUE)
 
   genes_CTRL <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_CTRL_", condition, ".csv")))[[1]]
-  genes_OSS  <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_OSS_", condition, ".csv")))[[1]]
+  genes_OSS <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_OSS_", condition, ".csv")))[[1]]
 
   unique_genes_CTRL_only_notOSS <- setdiff(genes_CTRL, genes_OSS)
-  unique_genes_OSS_only         <- setdiff(genes_OSS, genes_CTRL)
+  unique_genes_OSS_only <- setdiff(genes_OSS, genes_CTRL)
 
   ora_CTRL_dep <- runORA(genes_CTRL, "CTRL dependent", gmt_pathways, term2name)
-  ora_OSS_dep  <- runORA(genes_OSS,  "OSS dependent",  gmt_pathways, term2name)
+  ora_OSS_dep <- runORA(genes_OSS, "OSS dependent", gmt_pathways, term2name)
 
   ora_dependent <- bind_rows(ora_CTRL_dep, ora_OSS_dep)
 
-  ora_CTRL_OSS     <- runORA(unique_genes_CTRL_only_notOSS, "CTRL specific", gmt_pathways, term2name)
+  ora_CTRL_OSS <- runORA(unique_genes_CTRL_only_notOSS, "CTRL specific", gmt_pathways, term2name)
   ora_OSS_specific <- runORA(unique_genes_OSS_only, "OSS specific", gmt_pathways, term2name)
 
   ora_specific <- bind_rows(ora_CTRL_OSS, ora_OSS_specific) %>%
@@ -1114,15 +1146,15 @@ for (condition in organisms) {
 }
 
 combined_dependent <- combine_ORA_objects("dependent")
-combined_specific  <- combine_ORA_objects("specific")
+combined_specific <- combine_ORA_objects("specific")
 
 write.csv(combined_dependent, file.path(OUTPUT_PATH, "ORA_dependent_combined_CTRL_OSS.csv"), row.names = FALSE)
-write.csv(combined_specific,  file.path(OUTPUT_PATH, "ORA_specific_combined_CTRL_OSS.csv"), row.names = FALSE)
+write.csv(combined_specific, file.path(OUTPUT_PATH, "ORA_specific_combined_CTRL_OSS.csv"), row.names = FALSE)
 
-plot_oss_spec  <- plot_ORA_dotplot(combined_specific,  condition = "OSS specific",  gap = 0.30)
-plot_oss_dep   <- plot_ORA_dotplot(combined_dependent, condition = "OSS dependent", gap = 0.30)
-plot_ctrl_dep   <- plot_ORA_dotplot(combined_dependent, condition = "CTRL dependent", gap = 0.30)
-plot_ctrl_spec   <- plot_ORA_dotplot(combined_specific, condition= "CTRL specific", gap =0.30)
+plot_oss_spec <- plot_ORA_dotplot(combined_specific, condition = "OSS specific", gap = 0.30)
+plot_oss_dep <- plot_ORA_dotplot(combined_dependent, condition = "OSS dependent", gap = 0.30)
+plot_ctrl_dep <- plot_ORA_dotplot(combined_dependent, condition = "CTRL dependent", gap = 0.30)
+plot_ctrl_spec <- plot_ORA_dotplot(combined_specific, condition = "CTRL specific", gap = 0.30)
 
 ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_OSS_specific_dotplot.png"), plot_oss_spec, width = 5, height = 8, dpi = 300)
 print(plot_oss_spec)
@@ -1302,7 +1334,7 @@ print(plot2species$Yersinia_pseudotuberculosis)
 ## Essential vs non-essential per treatment
 
 ### Mean mRNA expression frequency of essential and non-essential genes
-```{r essential-per-condition-protein}
+```{r essential-per-condition-rna}
 source("sources/essential_analyses.R")
 plot <- plot_essential_distribution_per_treatment(
   all_df = tpm_log2_data,
@@ -1317,11 +1349,11 @@ print(plot)
 save_plot(
   plot = plot,
   filepath = file.path(SUPP_OUTPUT_PATH, "TPM_per_treatment_essential_distribution"),
-  width = 24, height = 24
+  width = 12, height = 18
 )
 ```
 ### Mean protein expression frequency of essential and non-essential genes
-```{r essential-per-condition}
+```{r essential-per-condition-protein}
 source("sources/essential_analyses.R")
 plot <- plot_essential_distribution_per_treatment(
   all_df = protQ_data,
@@ -1337,7 +1369,7 @@ save_plot(
     PROTEIN_QUANTIFICATION_METHOD, "_per_treatment_essential_distribution"
   )
   ),
-  width = 24, height = 24
+  width = 12, height = 18
 )
 
 print(plot)
@@ -1839,7 +1871,7 @@ output_file <- file.path(SUPP_OUTPUT_PATH, "protein_digestion_analyses")
 save_plot(
   plot = fig,
   filepath = output_file,
-  width = 16, height = 16
+  width = 12, height = 16
 )
 message(" Protein digestion plot saved: ", output_file, MSG_FIG_FORMAT)
 print(fig)
@@ -1859,7 +1891,7 @@ clean_list <- lapply(lock$Packages, function(pkg) {
   data.frame(
     Package = pkg$Package %||% NA,
     Version = pkg$Version %||% NA,
-    Source  = pkg$Source  %||% NA,
+    Source = pkg$Source %||% NA,
     stringsAsFactors = FALSE
   )
 })
