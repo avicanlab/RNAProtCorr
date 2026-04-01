@@ -1049,7 +1049,7 @@ combined <- plot_grid(
   NULL,
   legend,
   ncol = 3,
-  rel_widths = c(0.7, 0.05, 0.25) 
+  rel_widths = c(0.7, 0.05, 0.25)
 )
 
 print(combined)
@@ -1379,17 +1379,79 @@ print(plot)
 source("sources/normalization.R")
 # Method comparison — generates NormalyzerDE reports and PCA plots
 
-# run_normalization_comparison(
-#  protQ_data,
-#  protQ = PROTEIN_QUANTIFICATION_METHOD,
-#  output_path = SUPP_OUTPUT_PATH
-#)
+run_normalization_comparison(
+  protQ_data,
+  protQ = PROTEIN_QUANTIFICATION_METHOD,
+  output_path = SUPP_OUTPUT_PATH
+)
 plot_pca_comparison_grid(
   protQ_data = protQ_data,
   norm_dir = file.path(SUPP_OUTPUT_PATH),
   output_path = SUPP_OUTPUT_PATH
 )
 ```
+## Discordant genes show a differential expression in all conditions
+```{r discordant-DE}
+source("sources/discordant_analyses.R")
+deg_discordance_df <- deg_raw %>%
+  inner_join(discordance_df, by = c("Species", "Protein_id", "Treatment")) %>%
+  group_by(Species, Treatment, cluster) %>%
+  summarise(
+    n_de = sum(fdr < DEG_PVAL_THRESHOLD & abs(log2FC) > DE_FC_THRESHOLD, na.rm = TRUE),
+    n_total = n(),
+    pct_de = 100 * n_de / n_total,
+    de_ids = list(Protein_id[fdr < DEG_PVAL_THRESHOLD &
+                               abs(log2FC) > DE_FC_THRESHOLD &
+                               !is.na(fdr)]),
+    .groups = "drop"
+  )
+
+dep_raw <- map_dfr(species_list, function(species) {
+  sp_data <- norm_data %>%
+    filter(Species == species, Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
+           Protein_id %in% common_ids, is.finite(value))
+  prot_expr <- build_expression_matrix(sp_data)
+  extract_dep_raw(prot_expr$mat, prot_expr$metadata, species)
+})
+
+dep_discordance_df <- dep_raw %>%
+  inner_join(discordance_df, by = c("Species", "Protein_id", "Treatment")) %>%
+  group_by(Species, Treatment, cluster) %>%
+  summarise(
+    n_de = sum(adj.P.Val < DEP_PVAL_THRESHOLD & abs(logFC) > DE_FC_THRESHOLD, na.rm = TRUE),
+    n_total = n(),
+    pct_de = 100 * n_de / n_total,
+    de_ids = list(Protein_id[adj.P.Val < DEP_PVAL_THRESHOLD &
+                               abs(logFC) > DE_FC_THRESHOLD &
+                               !is.na(adj.P.Val)]),
+    .groups = "drop"
+  )
+
+plots <- plot_de_barplot_per_cluster(deg_discordance_df, dep_discordance_df, SUPP_OUTPUT_PATH)
+base_size = 32
+combined <- wrap_plots(plots, nrow = 3) +
+  plot_layout() &
+  plot_annotation(tag_levels = "A") &
+  theme(
+    axis.title = element_text(size = base_size + 2),
+    axis.text = element_text(size = base_size),
+    legend.position = "right",
+    legend.text = element_text(size = base_size + 2),
+    plot.title = element_text(size = base_size + 4),
+    strip.text = element_text(size = base_size),
+    plot.tag = element_text(size = 60)
+  )
+print(combined)
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "discordance_DEG_DEP_barplot")
+save_plot(
+  plot = combined,
+  filepath = output_file,
+  width = 16, height = 20
+)
+```
+## Enrichment dotplots
+
 ## Protein and peptide lengths
 
 ```{r prot-length}

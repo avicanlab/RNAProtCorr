@@ -82,12 +82,42 @@ assign_clusters <- function(joined) {
   protein_pattern <- protein_pattern %>%
     mutate(
       cluster = case_when(
-        rna_ever_down & !rna_ever_up & !rna_ever_unchanged & !prot_ever_down & !prot_ever_up & prot_ever_unchanged ~ "Cluster 1",
-        rna_ever_down & !rna_ever_up & !rna_ever_unchanged & !prot_ever_down & prot_ever_up & !prot_ever_unchanged ~ "Cluster 2",
-        !rna_ever_down & !rna_ever_up & rna_ever_unchanged & prot_ever_down & !prot_ever_up & !prot_ever_unchanged ~ "Cluster 3",
-        !rna_ever_down & !rna_ever_up & rna_ever_unchanged & !prot_ever_down & prot_ever_up & !prot_ever_unchanged ~ "Cluster 4",
-        !rna_ever_down & rna_ever_up & !rna_ever_unchanged & prot_ever_down & !prot_ever_up & !prot_ever_unchanged ~ "Cluster 5",
-        !rna_ever_down & rna_ever_up & !rna_ever_unchanged & !prot_ever_down & !prot_ever_up & prot_ever_unchanged ~ "Cluster 6",
+        rna_ever_down &
+          !rna_ever_up &
+          !rna_ever_unchanged &
+          !prot_ever_down &
+          !prot_ever_up &
+          prot_ever_unchanged ~ "Cluster 1",
+        rna_ever_down &
+          !rna_ever_up &
+          !rna_ever_unchanged &
+          !prot_ever_down &
+          prot_ever_up &
+          !prot_ever_unchanged ~ "Cluster 2",
+        !rna_ever_down &
+          !rna_ever_up &
+          rna_ever_unchanged &
+          prot_ever_down &
+          !prot_ever_up &
+          !prot_ever_unchanged ~ "Cluster 3",
+        !rna_ever_down &
+          !rna_ever_up &
+          rna_ever_unchanged &
+          !prot_ever_down &
+          prot_ever_up &
+          !prot_ever_unchanged ~ "Cluster 4",
+        !rna_ever_down &
+          rna_ever_up &
+          !rna_ever_unchanged &
+          prot_ever_down &
+          !prot_ever_up &
+          !prot_ever_unchanged ~ "Cluster 5",
+        !rna_ever_down &
+          rna_ever_up &
+          !rna_ever_unchanged &
+          !prot_ever_down &
+          !prot_ever_up &
+          prot_ever_unchanged ~ "Cluster 6",
         TRUE ~ NA_character_
       )
     )
@@ -107,6 +137,78 @@ colour_cluster_strips <- function(g) {
       fill <- col
   }
   g
+}
+
+#' Plot DEG vs DEP Percentage Bar Chart — All Species Combined
+#'
+#' @param deg_df      Tibble. call_deg() output with Species column.
+#' @param dep_df      Tibble. call_dep_all() output with Species column.
+#' @param output_path Chr. Output directory.
+#' @return NULL invisibly.
+plot_de_barplot_per_cluster <- function(deg_df, dep_df, output_path, prefix = NULL) {
+
+  cluster_labels <- setNames(
+    sapply(unique(deg_df$cluster), function(clust) {
+      display <- CLUSTER_LABELS[clust]
+    }),
+    unique(deg_df$cluster)
+  )
+
+  plots <- bind_rows(
+    deg_df %>% mutate(type = "DEGs"),
+    dep_df %>% mutate(type = "DEPs")
+  ) %>%
+    filter(Treatment %in% STRESS_TREATMENTS_PROT) %>%
+    mutate(
+      Treatment = factor(Treatment, levels = TREATMENT_ORDER),
+      type = factor(type, levels = c("DEGs", "DEPs"))
+    ) %>%
+    group_by(Species) %>%
+    group_map(function(sp_df, sp_key) {
+      species <- sp_key$Species
+
+      x_max <- ceiling(max(sp_df$pct_de, na.rm = TRUE) / 10) * 10
+      x_max <- max(x_max, 20)
+
+      ggplot(sp_df, aes(x = pct_de, y = Treatment, fill = type)) +
+        facet_wrap(~cluster,
+                   nrow = 2,
+                   labeller = as_labeller(cluster_labels)
+        ) +
+        geom_col(
+          position = position_dodge(width = 0.7, reverse = TRUE),
+          width = 0.6,
+          colour = NA
+        ) +
+        scale_fill_manual(values = DE_COLOURS, name = NULL) +
+        scale_x_continuous(
+          limits = c(0, x_max),
+          expand = expansion(mult = c(0, 0.02)),
+          breaks = seq(0, x_max, by = 20)
+        ) +
+        scale_y_discrete(drop = FALSE) +
+        labs(
+          title = format_species_title(species),
+          x = "Percentage",
+          y = "Stress Conditions"
+        ) +
+        theme_publication()
+    })
+
+  # Save per species
+  walk2(plots, unique(deg_df$Species), function(p, species) {
+    output_file <- file.path(
+      output_path, species, paste0(prefix, "discordance_DEG_DEP_barplot")
+    )
+    save_plot(
+      plot = p,
+      filepath = output_file,
+      width = 16, height = 5
+    )
+    message("  Plot saved: ", output_file, MSG_FIG_FORMAT)
+  })
+
+  plots
 }
 
 # ============================================================================
