@@ -54,7 +54,7 @@ plot_essential_distribution_per_treatment <- function(
       display <- PLOT_SPECIES_NAMES[species]
       display <- ifelse(is.na(display), gsub("_", " ", species), display)
       title_sp <- format_species_title(species)
-
+      x_lim <- range(sp_df[[log2_col]], na.rm = TRUE)
       treatment_plots <- sp_df %>%
         group_by(Treatment) %>%
         group_map(function(treat_df, treat_key) {
@@ -69,6 +69,7 @@ plot_essential_distribution_per_treatment <- function(
             aes(x = .data[[log2_col]], y = after_stat(density), fill = group)
           ) +
             geom_histogram(position = "identity", alpha = 0.5, bins = 40) +
+            scale_x_continuous(limits = x_lim) +
             scale_fill_manual(
               values = c("Non-Essential" = "#F4A8A0", "Essential" = "#80CEC8")
             ) +
@@ -120,7 +121,7 @@ plot_essential_distribution_per_treatment <- function(
   # Final combined figure of all species
   wrap_plots(sp_plots, ncol = 1) +
     plot_layout(guides = "collect") &
-    theme(legend.position = "top")
+    theme(legend.position = "right")
 }
 
 plot_essential_distribution <- function(
@@ -199,7 +200,7 @@ plot_essential_distribution <- function(
 }
 
 plot_stimulon_vs_all_correlation <- function(
-corr_all_df, corr_stimulon_df, measurement, output_path
+  corr_all_df, corr_stimulon_df, measurement, output_path
 ) {
   # Join both correlation sets by treatment
   plot_df <- inner_join(

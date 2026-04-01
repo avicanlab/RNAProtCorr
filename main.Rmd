@@ -1349,7 +1349,7 @@ print(plot)
 save_plot(
   plot = plot,
   filepath = file.path(SUPP_OUTPUT_PATH, "TPM_per_treatment_essential_distribution"),
-  width = 12, height = 18
+  width = 9, height = 18
 )
 ```
 ### Mean protein expression frequency of essential and non-essential genes
@@ -1369,7 +1369,7 @@ save_plot(
     PROTEIN_QUANTIFICATION_METHOD, "_per_treatment_essential_distribution"
   )
   ),
-  width = 12, height = 18
+  width = 9, height = 18
 )
 
 print(plot)
