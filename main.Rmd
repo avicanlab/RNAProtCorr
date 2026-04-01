@@ -3,13 +3,13 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-rmdformats::downcute:
-code_folding: hide
-self_contained: true
-thumbnails: false
-lightbox: true
+    rmdformats::downcute:
+        code_folding: hide
+        self_contained: true
+        thumbnails: false
+        lightbox: true
 pkgdown:
-as_is: true
+  as_is: true
 ---
 # How to use
 Make sure R 4.4
@@ -1047,102 +1047,68 @@ message(
 ## ORA of osmotic stress-specific mRNA–protein associations across three species.
 ```{r ora-analysis}
 source("sources/ora_analysis.R")
-
-ORA_OUTPUT <- file.path(OUTPUT_PATH, "ORA")
-dir.create(ORA_OUTPUT)
-
-connections_ALL_SE <- read.csv2(file.path(ORA, "connections_ALL_SE.csv"))
-connections_ALL_SA <- read.csv2(file.path(ORA, "connections_ALL_SA.csv"))
-connections_ALL_YP <- read.csv2(file.path(ORA, "connections_ALL_YP.csv"))
-
-results_SE <- process_organism(connections_ALL_SE, "SE", ORA_OUTPUT)
-results_SA <- process_organism(connections_ALL_SA, "SA", ORA_OUTPUT)
-results_YP <- process_organism(connections_ALL_YP, "YP", ORA_OUTPUT)
-
-create_gmt(
-  term2gene_file = file.path(ORA, "SE_TERM2GENE.txt"),
-  term2name_file = file.path(ORA, "SE_TERM2NAME.txt"),
-  output_gmt_file = file.path(ORA_OUTPUT, "Updated_SE_geneset.gmt")
-)
-
-# SA
-create_gmt(
-  term2gene_file = file.path(ORA, "SA_TERM2GENE.txt"),
-  term2name_file = file.path(ORA, "SA_TERM2NAME.txt"),
-  output_gmt_file = file.path(ORA_OUTPUT, "Updated_SA_geneset.gmt")
-)
-
-# YP
-create_gmt(
-  term2gene_file = file.path(ORA, "YP_TERM2GENE.txt"),
-  term2name_file = file.path(ORA, "YP_TERM2NAME.txt"),
-  output_gmt_file = file.path(ORA_OUTPUT, "Updated_YP_geneset.gmt")
-)
-
+ora_output <- file.path(OUTPUT_PATH, "ORA")
 organisms <- c("SE", "SA", "YP")
+dir.create(ora_output, recursive = TRUE, showWarnings = FALSE)
 
-for (condition in organisms) {
+# ---- 1. Process MOBILE output -------------------------------------------
+results <- map(organisms, function(org) {
+  data <- read.csv2(file.path(ORA, paste0("connections_ALL_", org, ".csv")))
+  process_organism(data, org, ora_output)
+}) %>% setNames(organisms)
 
-  message("Running ORA for: ", condition)
+# ---- 2. Build GMT files --------------------------------------------------
+walk(organisms, function(org) {
+  create_gmt(
+    term2gene_file = file.path(ORA, paste0(org, "_TERM2GENE.txt")),
+    term2name_file = file.path(ORA, paste0(org, "_TERM2NAME.txt")),
+    output_gmt_file = file.path(ora_output, paste0("Updated_", org, "_geneset.gmt"))
+  )
+})
 
-  gmt_pathways <- read.gmt(file.path(ORA_OUTPUT, paste0("Updated_", condition, "_geneset.gmt")))
-  term2name <- read.delim(file.path(ORA, paste0(condition, "_TERM2NAME.txt")), header = TRUE)
+# ---- 3. Run ORA per organism --------------------------------------------
+ora_results <- map(organisms, function(org) {
+  gmt_pathways <- read.gmt(file.path(ora_output, paste0("Updated_", org, "_geneset.gmt")))
+  term2name <- read.delim(file.path(ORA, paste0(org, "_TERM2NAME.txt")), header = TRUE)
+  run_ora_organism(org, results[[org]], gmt_pathways, term2name, ora_output)
+}) %>% setNames(organisms)
 
-  genes_CTRL <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_CTRL_", condition, ".csv")))[[1]]
-  genes_OSS <- read.csv(file.path(ORA_OUTPUT, paste0("unique_genes_LOGO_OSS_", condition, ".csv")))[[1]]
+# ---- 4. Combine results -------------------------------------------------
+combined_dependent <- combine_ora_results(map(ora_results, "dependent"))
+combined_specific <- combine_ora_results(map(ora_results, "specific"))
 
-  unique_genes_CTRL_only_notOSS <- setdiff(genes_CTRL, genes_OSS)
-  unique_genes_OSS_only <- setdiff(genes_OSS, genes_CTRL)
+write.csv(combined_dependent,
+          file.path(OUTPUT_PATH, "ORA_dependent_combined_CTRL_OSS.csv"),
+          row.names = FALSE)
+write.csv(combined_specific,
+          file.path(OUTPUT_PATH, "ORA_specific_combined_CTRL_OSS.csv"),
+          row.names = FALSE)
 
-  ora_CTRL_dep <- runORA(genes_CTRL, "CTRL dependent", gmt_pathways, term2name)
-  ora_OSS_dep <- runORA(genes_OSS, "OSS dependent", gmt_pathways, term2name)
+# ---- 5. Plot dotplots ---------------------------------------------------
+walk(ORA_CONDITIONS, function(cond) {
+  combined <- if (grepl("dependent", cond)) combined_dependent else combined_specific
 
-  ora_dependent <- bind_rows(ora_CTRL_dep, ora_OSS_dep)
-
-  ora_CTRL_OSS <- runORA(unique_genes_CTRL_only_notOSS, "CTRL specific", gmt_pathways, term2name)
-  ora_OSS_specific <- runORA(unique_genes_OSS_only, "OSS specific", gmt_pathways, term2name)
-
-  ora_specific <- bind_rows(ora_CTRL_OSS, ora_OSS_specific) %>%
-    filter(!is.na(Description))
-
-  assign(paste0("ora_dependent_", condition), ora_dependent)
-  assign(paste0("ora_specific_", condition), ora_specific)
-
-  write.csv(
-    ora_dependent,
-    file.path(ORA_OUTPUT, paste0("ORA_dependent_CTRL_OSS_", condition, ".csv")),
-    row.names = FALSE
+  p <- tryCatch(
+    plot_ora_dotplot(combined, condition = cond, gap = 0.30),
+    error = function(e) {
+      message("  Skipping dotplot for '", cond, "': ", e$message)
+      NULL
+    }
   )
 
-  write.csv(
-    ora_specific,
-    file.path(ORA_OUTPUT, paste0("ORA_specific_CTRL_OSS_", condition, ".csv")),
-    row.names = FALSE
-  )
-}
+  if (!is.null(p)) {
+    filename <- file.path(
+      OUTPUT_PATH,
+      paste0("ORA_", gsub(" ", "_", cond), "_dotplot.png")
+    )
+    ggsave(filename, p, width = DOTPLOT_WIDTH, height = DOTPLOT_HEIGHT, dpi = 300)
+    message("  Saved: ", filename)
+    print(p)
+  }
+})
 
-combined_dependent <- combine_ORA_objects("dependent")
-combined_specific <- combine_ORA_objects("specific")
-
-write.csv(combined_dependent, file.path(OUTPUT_PATH, "ORA_dependent_combined_CTRL_OSS.csv"), row.names = FALSE)
-write.csv(combined_specific, file.path(OUTPUT_PATH, "ORA_specific_combined_CTRL_OSS.csv"), row.names = FALSE)
-
-plot_oss_spec <- plot_ORA_dotplot(combined_specific, condition = "OSS specific", gap = 0.30)
-plot_oss_dep <- plot_ORA_dotplot(combined_dependent, condition = "OSS dependent", gap = 0.30)
-plot_ctrl_dep <- plot_ORA_dotplot(combined_dependent, condition = "CTRL dependent", gap = 0.30)
-plot_ctrl_spec <- plot_ORA_dotplot(combined_specific, condition = "CTRL specific", gap = 0.30)
-
-ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_OSS_specific_dotplot.png"), plot_oss_spec, width = 5, height = 8, dpi = 300)
-print(plot_oss_spec)
-
-ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_OSS_dependent_dotplot.png"), plot_oss_dep, width = 5, height = 8, dpi = 300)
-print(plot_oss_dep)
-
-ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_CTRL_dependent_dotplot.png"), plot_ctrl_dep, width = 5, height = 8, dpi = 300)
-print(plot_ctrl_dep)
-
-ggplot2::ggsave(file.path(OUTPUT_PATH, "ORA_CTRL_specific_dotplot.png"), plot_ctrl_spec, width = 5, height = 8, dpi = 300)
-print(plot_ctrl_spec)
+message("\nORA pipeline complete. Results saved to: ", OUTPUT_PATH)
+invisible(list(dependent = combined_dependent, specific = combined_specific))
 ```
 
 # Supplementary Tables & figures
@@ -1435,24 +1401,24 @@ enrichment_results <- run_enrichment_all(
   pval_cutoff = 0.01,
   qval_cutoff = 0.2
 )
-export_enrichment_data <- enrichment_results  %>%
-    separate_longer_delim(geneID, delim = "/") %>%
-        select(
-                Species,
-                Cluster,
-                Protein_ID,
-                ID,
-                namespace,
-                Description,
-                GeneRatio,
-                BgRatio,
-                RichFactor,
-                FoldEnrichment,
-                zScore,
-                pvalue,
-                p.adjust,
-                qvalue
-        )
+export_enrichment_data <- enrichment_results %>%
+  separate_longer_delim(geneID, delim = "/") %>%
+  select(
+    Species,
+    Cluster,
+    Protein_ID,
+    ID,
+    namespace,
+    Description,
+    GeneRatio,
+    BgRatio,
+    RichFactor,
+    FoldEnrichment,
+    zScore,
+    pvalue,
+    p.adjust,
+    qvalue
+  )
 output_file <- file.path(SUPP_OUTPUT_PATH, "enrichment_results.tsv")
 write.table(
   export_enrichment_data,
