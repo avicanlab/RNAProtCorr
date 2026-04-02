@@ -43,6 +43,7 @@ library(stringr)
 library(tidyverse)
 library(showtext)
 library(limma)
+library(clusterProfiler)
 
 # Load sources functions
 source("sources/utils.R")
@@ -461,7 +462,7 @@ p <- plot_correlation(
 print(p)
 output_file <- file.path(
   OUTPUT_PATH,
-  paste0("TMP_", PROTEIN_QUANTIFICATION_METHOD, "_correlation_panels")
+  paste0("TPM_", PROTEIN_QUANTIFICATION_METHOD, "_correlation_panels")
 )
 save_plot(
   p,
