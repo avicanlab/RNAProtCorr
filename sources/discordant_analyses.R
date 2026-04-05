@@ -422,7 +422,7 @@ build_discordance_clusters_zscore <- function(
     p <- p + geom_star(
       data = fg %>% filter(cluster == cl),
       aes(x = .data[[x_col]], y = .data[[y_col]],
-          fill = cluster, starshape = Treatment),
+          fill = cluster), #, starshape = Treatment),
       alpha = 0.7, size = 1.5, colour = NA
     )
   }
@@ -434,9 +434,9 @@ build_discordance_clusters_zscore <- function(
              hjust = -0.25, vjust = 2.5, size = 8, colour = "grey30", fontface = "italic") +
     scale_fill_manual(values = CLUSTER_COLOURS, labels = CLUSTER_LABELS,
                       name = "mRNA \u2013 Protein", breaks = names(CLUSTER_COLOURS), drop = FALSE) +
-    scale_starshape_manual(values = TREATMENT_SHAPES, name = "Treatment") +
+    # scale_starshape_manual(values = TREATMENT_SHAPES, name = "Treatment") +
     guides(
-      starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
+      # starshape = guide_legend(override.aes = list(fill = "grey40", colour = "grey40", size = 3, alpha = 1)),
       fill = guide_legend(override.aes = list(starshape = 15, colour = "white", size = 3, alpha = 1))
     ) +
     scale_x_continuous(limits = x_lim, breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) +

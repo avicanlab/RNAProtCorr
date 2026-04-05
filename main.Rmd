@@ -3,13 +3,13 @@ title: "Bacterial Stress Responses Lower mRNA-Protein Level Correlations"
 author: "Sena Gizem Suer, Yi Yang Lim, Rabia Şen, Cemal Erdem, André Mateus and Kemal Avican"
 date: "2026-02-18"
 output:
-    rmdformats::downcute:
-        code_folding: hide
-        self_contained: true
-        thumbnails: false
-        lightbox: true
+rmdformats::downcute:
+code_folding: hide
+self_contained: true
+thumbnails: false
+lightbox: true
 pkgdown:
-  as_is: true
+as_is: true
 ---
 # How to use
 Make sure R 4.4
@@ -909,6 +909,7 @@ write.table(summary_table, file.path(OUTPUT_PATH, "discordance_summary.tsv"),
             sep = "\t", row.names = FALSE, quote = FALSE)
 print(summary_table)
 ```
+
 ```{r zscore-scatter-plot}
 source("sources/discordant_analyses.R")
 invisible(plot_discordance_scatter_zscore(
@@ -1331,6 +1332,74 @@ plot_pca_comparison_grid(
   norm_dir = file.path(SUPP_OUTPUT_PATH),
   output_path = SUPP_OUTPUT_PATH
 )
+```
+## Differential expression levels of discordantly regulated genes in the genes clusters with different expression patterns. Gene list for each species are showng in separate sheet for each species.
+
+```{r supp-table--2}
+header <- " Differential expression levels of discordantly regulated genes in the genes clusters with different expression patterns. Gene list for each species are showng in separate sheet for each species."
+
+
+
+
+wb <- createWorkbook()
+
+supp_table <- zscore_tpm_df %>%
+  inner_join(zscore_protQ_df, by = c("Species", "Protein_id", "Treatment"), suffix = c(".mRNA", ".Protein")) %>%
+  inner_join(discordance_df, by = c("Species", "Protein_id", "Treatment")) %>%
+  select(-c("rna_z", "prot_z", "cluster")) %>%
+  mutate(Expression = paste(rna_sig, prot_sig, sep = "-")) %>%
+  select(-c("rna_sig", "prot_sig")) %>%
+  distinct() %>% 
+  group_by(Species) %>%
+  group_walk(function(sp_df, sp_key) {
+    species <- sp_key$Species
+
+    addWorksheet(wb, sheetName = species)
+
+    # --- Row 1: Full header text merged across all columns ---------------
+    writeData(wb, sheet = species, x = header,
+              startRow = 1, startCol = 1)
+    addStyle(wb, sheet = species,
+             style = createStyle(
+               fontName = "Arial", fontSize = 10,
+               textDecoration = "bold", wrapText = TRUE
+             ),
+             rows = 1, cols = 1)
+    setRowHeights(wb, sheet = species, rows = 1, heights = 40)
+    
+    # --- Row 2: Column headers -------------------------------------------
+    writeData(wb, sheet = species, x = as.data.frame(t(colnames(sp_df))),
+              startRow = 2, startCol = 1, colNames = FALSE)
+    addStyle(wb, sheet = species,
+             style = createStyle(
+                 fontName       = "Arial",
+                 fontSize       = 10,
+                 textDecoration = "bold",
+                 fgFill         = "#D9E1F2",
+                 halign         = "center",
+                 border         = "Bottom"
+             ),
+             rows = 2, cols = 1:ncol(sp_df), gridExpand = TRUE)
+
+    # --- Row 3+: Data ----------------------------------------------------
+    writeData(wb, sheet = species, x = sp_df,
+              startRow = 3, startCol = 1, colNames = FALSE)
+
+    addStyle(wb, sheet = species,
+             style = createStyle(fontName = "Arial", fontSize = 10),
+             rows  = 3:(nrow(sp_df) + 2),
+             cols  = 1:ncol(sp_df), gridExpand = TRUE)
+
+    setColWidths(wb, sheet = species,
+                 cols = 1:ncol(sp_df), widths = "auto")
+
+    message("Sheet added: ", species, " (", nrow(sp_df), " proteins x ",
+            ncol(sp_df) - 1, " samples)")
+  })
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "Supplementary_Table_2.xlsx")
+saveWorkbook(wb, output_file, overwrite = TRUE)
+message("Excel file saved: ", output_file)
 ```
 ## Discordant genes show a differential expression in all conditions
 ```{r discordant-DE}
