@@ -1,352 +1,320 @@
 # Function to read transcriptomic and proteomic data --------------------------
-# Developed by Sena Gizem Suer, Yi Yang Lim, Jérôme Arnoux
 #
 # Description:
-#
-# Inputs:
-#
-# Outputs:
+#   Functions for loading and filtering RNA-seq (TPM) and proteomics (TMT)
+#   data from Excel and TSV files into tidy long-format tibbles.
 #
 # Requirements:
-#
+#   library(readxl)
+#   library(readr)
+#   library(dplyr)
+#   library(tidyr)
+#   library(stringr)
+#   library(purrr)
 
-## Configuration --------------------------------------------------------------
+# ── TMT column name constants ──────────────────────────────────────────────────
+# These match the exact header names used in the TMT result TSV files.
 
-# Column names in TMT results files
-col_protein <- "Protein"
-col_protein_id <- "Protein ID"
-col_entry_name <- "Entry Name"
-col_gene <- "Gene"
-col_organism <- "Organism"
-col_unique_peptides <- "Unique Peptides"
-col_razor_peptides <- "Razor Peptides"
-col_total_intensity <- "Total Intensity"
+COL_PROTEIN          <- "Protein"
+COL_PROTEIN_ID       <- "Protein ID"
+COL_ENTRY_NAME       <- "Entry Name"
+COL_GENE             <- "Gene"
+COL_ORGANISM         <- "Organism"
+COL_UNIQUE_PEPTIDES  <- "Unique Peptides"
+COL_RAZOR_PEPTIDES   <- "Razor Peptides"
+COL_TOTAL_INTENSITY  <- "Total Intensity"
 
-keep_cols <- c(
-    col_protein,
-    col_protein_id,
-    col_entry_name,
-    col_gene,
-    col_organism,
-    col_unique_peptides,
-    col_razor_peptides,
-    col_total_intensity
+TMT_KEEP_COLS <- c(
+  COL_PROTEIN,
+  COL_PROTEIN_ID,
+  COL_ENTRY_NAME,
+  COL_GENE,
+  COL_ORGANISM,
+  COL_UNIQUE_PEPTIDES,
+  COL_RAZOR_PEPTIDES,
+  COL_TOTAL_INTENSITY
 )
 
-STRESS_TREATMENTS <- c("As", "Bs", "Li", "Nd", "Ns", "Oss", "Oxs", "Sp", "Tm")
-STRESS_TREATMENTS_RNA <- c(STRESS_TREATMENTS, "Mig")
-
-## Read transcriptomic data ---------------------------------------------------
+# ── Transcriptomic data ────────────────────────────────────────────────────────
 
 #' Read TPM Data from Excel
 #'
 #' @description
-#' Loads Transcript Per Million (TPM) expression data from Excel file,
-#' extracts relevant columns, and reshapes to long format with treatment
-#' and replicate information.
+#' Loads Transcript Per Million (TPM) expression data from an Excel file,
+#' selects relevant columns, and reshapes to long format with separate
+#' `Treatment` and `Replicate` columns parsed from the column names.
 #'
-#' @param dataset_path Character. Path to Excel file containing TPM data
-#' @param sp_abbv Character. Species abbreviation for column pattern matching
+#' Column names are expected to match the pattern:
+#'   `<ABBV>_<Treatment>_<Replicate> (GE) - TPM`
 #'
-#' @return Tibble with columns: Species, Protein_id, Treatment, Replicate, TPM
+#' @param dataset_path Character. Path to the Excel file containing TPM data.
+#' @param sp_abbv      Character. Species abbreviation used in column names
+#'   (e.g. `"SALMT"`).
+#'
+#' @return Tibble with columns: `Species`, `Protein_id`, `Treatment`,
+#'   `Replicate`, `TPM`.
 read_tpm <- function(dataset_path, sp_abbv) {
-    select_columns <- c("Species", "New_locus_tag", "Old_locus_tag")
+  select_columns <- c("Species", "New_locus_tag", "Old_locus_tag")
 
-    # Build regex pattern: ABBV_Treatment_Replicate (GE) - TPM
-    pattern <- paste0(
-        "^", sp_abbv, "_(",
-        paste(TREATMENTS_LIST_RNA, collapse = "|"),
-        ")_(\\d+) \\(GE\\) - TPM$"
-    )
+  # Regex: ABBV_Treatment_Replicate (GE) - TPM
+  pattern <- paste0(
+    "^", sp_abbv, "_(",
+    paste(TREATMENTS_LIST_RNA, collapse = "|"),
+    ")_(\\d+) \\(GE\\) - TPM$"
+  )
 
-    data <- read_excel(dataset_path, col_names = TRUE, na = "N/A") %>%
-        dplyr::select(
-            all_of(select_columns),
-            matches(
-                paste0(
-                    "(",
-                    paste(TREATMENTS_LIST_RNA, collapse = "|"),
-                    ").*TPM|TPM.*(", paste(TREATMENTS_LIST_RNA, collapse = "|"), ")"
-                )
-            )
-        ) %>%
-        mutate(
-            New_locus_tag = if_else(
-                is.na(New_locus_tag),
-                Old_locus_tag,
-                New_locus_tag
-            )
-        )
+  # Column-selection regex: keep any column that mentions a treatment and TPM
+  tpm_col_pattern <- paste0(
+    "(", paste(TREATMENTS_LIST_RNA, collapse = "|"), ").*TPM",
+    "|TPM.*(", paste(TREATMENTS_LIST_RNA, collapse = "|"), ")"
+  )
 
-    data %>%
-        dplyr::select(-Old_locus_tag) %>%
-        rename(Protein_id = New_locus_tag) %>%
-        pivot_longer(
-            cols      = -c(Species, Protein_id),
-            names_to  = "col_name",
-            values_to = "TPM"
-        ) %>%
-        mutate(
-            Treatment = str_match(col_name, pattern)[, 2],
-            Replicate = str_match(col_name, pattern)[, 3]
-        ) %>%
-        dplyr::select(Species, Protein_id, Treatment, Replicate, TPM)
+  readxl::read_excel(dataset_path, col_names = TRUE, na = "N/A") |>
+    dplyr::select(
+      dplyr::all_of(select_columns),
+      dplyr::matches(tpm_col_pattern)
+    ) |>
+    dplyr::mutate(
+      New_locus_tag = dplyr::if_else(
+        is.na(New_locus_tag),
+        Old_locus_tag,
+        New_locus_tag
+      )
+    ) |>
+    dplyr::select(-Old_locus_tag) |>
+    dplyr::rename(Protein_id = New_locus_tag) |>
+    tidyr::pivot_longer(
+      cols      = -c(Species, Protein_id),
+      names_to  = "col_name",
+      values_to = "TPM"
+    ) |>
+    dplyr::mutate(
+      Treatment = stringr::str_match(col_name, pattern)[, 2],
+      Replicate = stringr::str_match(col_name, pattern)[, 3]
+    ) |>
+    dplyr::select(Species, Protein_id, Treatment, Replicate, TPM)
 }
 
+# ── Proteomic data ─────────────────────────────────────────────────────────────
 
-## Read proteomic data --------------------------------------------------------
-#' Read a TMT result TSV file
-#'
-#' @param path Path to the TSV file
-#' @return A tibble with the relevant columns
-read_tmt <- function(path) {
-    readr::read_tsv(
-        path,
-        col_names = TRUE,
-        show_col_types = FALSE,
-        col_select = c(all_of(keep_cols), starts_with("channel_")),
-        skip_empty_rows = TRUE
-    )
-}
-
-#' Filter TMT data for a given species and replicate
-#'
-#' Applies sequential filters:
-#'   1. Keep rows matching the species
-#'   2. Remove contaminants
-#'   3. Keep proteins with > 1 unique peptide
-#'   4. Remove rows with missing Gene
-#'   5. Deduplicate by keeping the row with highest unique peptides and intensity per gene
-#'
-#' @param tmt_df     A tibble from read_tmt()
-#' @param curr_species   Species name (as it appears in the Organism column)
-#' @param curr_replicate Replicate identifier (e.g. "R1")
-#' @return A named list with:
-#'   - `filtered_tmt`: filtered tibble
-#'   - `filter_log`:   named vector of row counts at each step
-filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
-    step0 <- tmt_df %>%
-        mutate(
-            total_intensity = as.numeric(.data[[col_total_intensity]]),
-            total_intensity = na_if(total_intensity, 0),
-            Protein_id      = .data[[col_protein_id]],
-            Organism        = str_replace(.data[[col_organism]], " ", "_")
-        )
-
-    step1 <- step0 %>%
-        filter(grepl(curr_species, .data[[col_organism]]))
-
-    step2 <- step1 %>%
-        filter(!grepl("contam_sp", .data[[col_protein]]))
-
-    step3 <- step2 %>%
-        filter(.data[[col_unique_peptides]] > 1)
-
-    step4 <- step3 %>%
-        filter(total_intensity > 0)
-
-    step5 <- step4 %>%
-        filter(!is.na(.data[[col_gene]]))
-
-    step6 <- step5 %>%
-        group_by(.data[[col_gene]]) %>%
-        filter(
-            .data[[col_unique_peptides]] == max(.data[[col_unique_peptides]]),
-            .data[[col_total_intensity]] == max(.data[[col_total_intensity]])
-        ) %>%
-        ungroup()
-
-    filter_log <- c(
-        species = curr_species,
-        replicate = curr_replicate,
-        initial = nrow(step0),
-        remove_non_sp = nrow(step1),
-        remove_contam = nrow(step2),
-        remove_unique_pep = nrow(step3),
-        remove_intensity_0 = nrow(step4),
-        remove_na_gene = nrow(step5),
-        remove_dedup = nrow(step6)
-    )
-
-    list(filtered_tmt = step6, filter_log = filter_log)
-}
-
-#' Process all TMT TSV files in a directory
-#'
-#' Reads, filters, and combines all TSV files found recursively under tmt_path.
-#' Expects filenames of the form: <Species>_R<n>.tsv
-#' Writes a filter log TSV to output_path.
-#'
-#' @param tmt_path    Path to the directory containing TSV files
-#' @param output_path Path to the output directory (must end with "/")
-#' @return A unified tibble with Species and Replicate columns prepended
-# process_tmt <- function(tmt_path, output_path) {
-#     tsv_files <- list.files(
-#         tmt_path,
-#         pattern    = "\\.tsv$",
-#         recursive  = TRUE,
-#         full.names = TRUE
-#     )
-
-#     filter_log <- list()
-#     filtered_tmt <- list()
-
-#     for (tsv in tsv_files) {
-#         curr_species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", tsv)
-#         curr_replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", tsv)
-
-#         tmt_data <- read_tmt(tsv)
-#         filter_result <- filter_tmt(tmt_data, curr_species, curr_replicate)
-
-#         filtered_tmt[[curr_species]][[curr_replicate]] <- filter_result$filtered_tmt
-#         filter_log[[curr_species]][[curr_replicate]] <- filter_result$filter_log
-#     }
-
-#     # Combine all species/replicates into a single tibble
-#     unified_tmt <- map_dfr(names(filtered_tmt), function(species) {
-#         map_dfr(names(filtered_tmt[[species]]), function(rep) {
-#             filtered_tmt[[species]][[rep]] %>%
-#                 mutate(Species = species, Replicate = rep)
-#         })
-#     }) %>%
-#         select(Species, Replicate, everything())
-
-#     # Build and write filter log
-#     filter_log_df <- map_dfr(filter_log, ~ bind_rows(.x)) %>%
-#         mutate(across(-c("species", "replicate"), as.integer))
-
-#     message("TMT filtering summary:\n")
-#     print(filter_log_df)
-
-#     write.table(
-#         filter_log_df,
-#         paste0(output_path, "filter_log.tsv"),
-#         sep       = "\t",
-#         row.names = FALSE,
-#         quote     = FALSE
-#     )
-
-#     unified_tmt
-# }
-
-#' Remove proteins with incomplete data across replicates and treatments
-#'
-#' Keeps only proteins that have at least one value for every unique
-#' Species-Replicate-Treatment combination in the dataset.
-#'
-#' @param tmt_data A tibble with Species, Replicate, and Treatment columns
-#' @return Filtered tibble with complete proteins only
-filter_complete_proteins <- function(tmt_data, protQ_value = NULL) {
-    # Get the total number of unique Species-Replicate-Treatment combinations
-    n_conditions <- tmt_data %>%
-        distinct(Replicate, Treatment) %>%
-        nrow()
-
-    all_proteins <- tmt_data %>%
-        distinct(Species, Protein_id)
-
-    n_before <- nrow(all_proteins)
-
-    # Keep only proteins that appear in all conditions
-    if (!is.null(protQ_value)) {
-        filtered <- tmt_data %>%
-            filter(!is.na(.data[[protQ_value]]))
-    } else {
-        filtered <- tmt_data
-    }
-    filtered <- filtered %>%
-        group_by(Species, Protein_id) %>%
-        filter(n_distinct(paste(Replicate, Treatment, sep = "_")) == n_conditions) %>%
-        ungroup()
-
-    kept_proteins <- filtered %>%
-        distinct(Species, Protein_id)
-
-    n_after <- nrow(kept_proteins)
-    n_removed <- n_before - n_after
-
-    # Find removed proteins
-    removed_proteins <- all_proteins %>%
-        anti_join(kept_proteins, by = c("Species", "Protein_id")) %>%
-        # Get additional info for removed proteins from original data
-        left_join(
-            tmt_data,
-            by = c("Species", "Protein_id")
-        )
-
-    message("Protein completeness filtering:\n")
-    message("  Total unique conditions: ", n_conditions, "\n")
-    message("  Proteins before filtering: ", n_before, "\n")
-    message("  Proteins after filtering: ", n_after, "\n")
-    message("  Proteins removed: ", n_removed, "\n\n")
-
-    list(filtered_data = filtered, removed_proteins = removed_proteins)
-}
-
-#' Read Essential Genes Vector from Excel
+#' Read a TMT Result TSV File
 #'
 #' @description
-#' Loads an essential genes Excel file and returns a flat character vector
-#' of gene IDs.
+#' Reads a single TMT quantification file, retaining only the columns defined
+#' in `TMT_KEEP_COLS` plus any `channel_*` intensity columns.
 #'
-#' @param filepath Chr. Path to essential genes Excel file.
+#' @param path Character. Path to the TSV file.
+#'
+#' @return Tibble with protein metadata and channel intensity columns.
+read_tmt <- function(path) {
+  readr::read_tsv(
+    path,
+    col_names       = TRUE,
+    show_col_types  = FALSE,
+    col_select      = c(dplyr::all_of(TMT_KEEP_COLS), dplyr::starts_with("channel_")),
+    skip_empty_rows = TRUE
+  )
+}
+
+#' Filter a TMT Tibble for One Species and Replicate
+#'
+#' @description
+#' Applies the following sequential filters:
+#'   1. Keep only rows matching `curr_species` in the Organism column.
+#'   2. Remove contaminant entries (`contam_sp` prefix).
+#'   3. Keep proteins with more than one unique peptide.
+#'   4. Remove rows where total intensity is zero or missing.
+#'   5. Remove rows with a missing Gene identifier.
+#'   6. Deduplicate by keeping, per gene, the row with the highest unique
+#'      peptide count and highest total intensity.
+#'
+#' @param tmt_df        Tibble. Output of `read_tmt()`.
+#' @param curr_species  Character. Species name as it appears in the Organism
+#'   column (e.g. `"Salmonella_enterica"`).
+#' @param curr_replicate Character. Replicate identifier (e.g. `"R1"`).
+#'
+#' @return Named list with two elements:
+#'   - `filtered_tmt` : filtered tibble.
+#'   - `filter_log`   : named character vector of row counts at each step.
+filter_tmt <- function(tmt_df, curr_species, curr_replicate) {
+  step0 <- tmt_df |>
+    dplyr::mutate(
+      total_intensity = as.numeric(.data[[COL_TOTAL_INTENSITY]]),
+      total_intensity = dplyr::na_if(total_intensity, 0),
+      Protein_id      = .data[[COL_PROTEIN_ID]],
+      Organism        = stringr::str_replace(.data[[COL_ORGANISM]], " ", "_")
+    )
+
+  step1 <- step0 |>
+    dplyr::filter(grepl(curr_species, .data[[COL_ORGANISM]]))
+
+  step2 <- step1 |>
+    dplyr::filter(!grepl("contam_sp", .data[[COL_PROTEIN]]))
+
+  step3 <- step2 |>
+    dplyr::filter(.data[[COL_UNIQUE_PEPTIDES]] > 1)
+
+  step4 <- step3 |>
+    dplyr::filter(total_intensity > 0)
+
+  step5 <- step4 |>
+    dplyr::filter(!is.na(.data[[COL_GENE]]))
+
+  step6 <- step5 |>
+    dplyr::group_by(.data[[COL_GENE]]) |>
+    dplyr::filter(
+      .data[[COL_UNIQUE_PEPTIDES]] == max(.data[[COL_UNIQUE_PEPTIDES]]),
+      .data[[COL_TOTAL_INTENSITY]] == max(.data[[COL_TOTAL_INTENSITY]])
+    ) |>
+    dplyr::ungroup()
+
+  filter_log <- c(
+    species            = curr_species,
+    replicate          = curr_replicate,
+    initial            = nrow(step0),
+    remove_non_sp      = nrow(step1),
+    remove_contam      = nrow(step2),
+    remove_unique_pep  = nrow(step3),
+    remove_intensity_0 = nrow(step4),
+    remove_na_gene     = nrow(step5),
+    remove_dedup       = nrow(step6)
+  )
+
+  list(filtered_tmt = step6, filter_log = filter_log)
+}
+
+#' Remove Proteins With Incomplete Data Across Replicates and Treatments
+#'
+#' @description
+#' Keeps only proteins that have at least one observation for every unique
+#' Species × Replicate × Treatment combination in the dataset.
+#'
+#' @param tmt_data    Tibble with `Species`, `Replicate`, and `Treatment` columns.
+#' @param protQ_value Character or NULL. Optional quantification column name; if
+#'   provided, rows where this column is `NA` are additionally excluded before
+#'   the completeness check. Default NULL.
+#'
+#' @return Named list:
+#'   - `filtered_data`    : tibble of complete proteins only.
+#'   - `removed_proteins` : tibble of removed proteins with their original rows.
+filter_complete_proteins <- function(tmt_data, protQ_value = NULL) {
+  n_conditions <- tmt_data |>
+    dplyr::distinct(Replicate, Treatment) |>
+    nrow()
+
+  all_proteins <- tmt_data |> dplyr::distinct(Species, Protein_id)
+  n_before     <- nrow(all_proteins)
+
+  filtered <- if (!is.null(protQ_value)) {
+    dplyr::filter(tmt_data, !is.na(.data[[protQ_value]]))
+  } else {
+    tmt_data
+  }
+
+  filtered <- filtered |>
+    dplyr::group_by(Species, Protein_id) |>
+    dplyr::filter(
+      dplyr::n_distinct(paste(Replicate, Treatment, sep = "_")) == n_conditions
+    ) |>
+    dplyr::ungroup()
+
+  kept_proteins <- filtered |> dplyr::distinct(Species, Protein_id)
+  n_after       <- nrow(kept_proteins)
+  n_removed     <- n_before - n_after
+
+  removed_proteins <- all_proteins |>
+    dplyr::anti_join(kept_proteins, by = c("Species", "Protein_id")) |>
+    dplyr::left_join(tmt_data,       by = c("Species", "Protein_id"))
+
+  message("Protein completeness filtering:")
+  message("  Total unique conditions : ", n_conditions)
+  message("  Proteins before         : ", n_before)
+  message("  Proteins after          : ", n_after)
+  message("  Proteins removed        : ", n_removed)
+
+  list(filtered_data = filtered, removed_proteins = removed_proteins)
+}
+
+# ── Annotation / gene-list helpers ─────────────────────────────────────────────
+
+#' Read Essential Genes from an Excel File
+#'
+#' @description
+#' Loads an essential-genes Excel file and returns a flat character vector of
+#' all gene IDs found across all columns.
+#'
+#' @param filepath Character. Path to the Excel file.
 #'
 #' @return Character vector of essential gene IDs.
 read_essential_vec <- function(filepath) {
-    read_excel(filepath) %>%
-        as.list() %>%
-        unlist() %>%
-        as.vector()
+  readxl::read_excel(filepath) |>
+    as.list() |>
+    unlist() |>
+    as.vector()
 }
 
-read_stimulon_vec <- function(filepath) {
-    read_excel(filepath, skip=1) %>%
-      select("Locus Tag") %>%
-        as.list() %>%
-        unlist() %>%
-        as.vector()
-}
-#' Read DEG Results for one species Read Counts Excel File
+#' Read Stimulon Locus Tags from an Excel File
 #'
 #' @description
-#' Loads read counts Excel file for one species and returns a single
-#' long-format tibble.
+#' Loads a stimulon Excel file (skipping the first header row) and returns
+#' a flat character vector of locus tags from the `"Locus Tag"` column.
 #'
-#' @param counts_path Chr. Directory containing read counts Excel files.
+#' @param filepath Character. Path to the Excel file.
 #'
-#' @return Tibble: Protein_id, Treatment, log2FC, fdr, max_mean
+#' @return Character vector of locus tag IDs.
+read_stimulon_vec <- function(filepath) {
+  readxl::read_excel(filepath, skip = 1) |>
+    dplyr::select("Locus Tag") |>
+    as.list() |>
+    unlist() |>
+    as.vector()
+}
+
+#' Read DEG Results From a Read-Counts Excel File
+#'
+#' @description
+#' Loads a read-counts Excel file for one species and returns a single
+#' long-format tibble with one row per gene × treatment combination.
+#' Columns for logFC, FDR, and max group means are parsed from the expected
+#' naming convention `"<Treatment> vs. Ctrl - <metric>"`.
+#'
+#' @param filepath Character. Path to the read-counts Excel file.
+#'
+#' @return Tibble with columns: `Protein_id`, `Treatment`, `log2FC`, `fdr`,
+#'   `max_mean`.
 read_deg_data <- function(filepath) {
-    col_lfc <- function(trt) paste0(trt, " vs. Ctrl - Log fold change")
-    col_fdr <- function(trt) paste0(trt, " vs. Ctrl - FDR p-value")
-    col_mean <- function(trt) paste0(trt, " vs. Ctrl - Max group means")
+  col_lfc  <- function(trt) paste0(trt, " vs. Ctrl - Log fold change")
+  col_fdr  <- function(trt) paste0(trt, " vs. Ctrl - FDR p-value")
+  col_mean <- function(trt) paste0(trt, " vs. Ctrl - Max group means")
 
-    raw <- read_excel(filepath, col_names = TRUE) %>%
-        mutate(
-            Protein_id = if_else(
-                is.na(New_locus_tag) | New_locus_tag == "N/A",
-                Old_locus_tag,
-                New_locus_tag
-            )
-        ) %>%
-        filter(!is.na(Protein_id))
+  raw <- readxl::read_excel(filepath, col_names = TRUE) |>
+    dplyr::mutate(
+      Protein_id = dplyr::if_else(
+        is.na(New_locus_tag) | New_locus_tag == "N/A",
+        Old_locus_tag,
+        New_locus_tag
+      )
+    ) |>
+    dplyr::filter(!is.na(Protein_id))
 
-    treatments_present <- STRESS_TREATMENTS_RNA[
-        map_lgl(STRESS_TREATMENTS_RNA, ~ col_lfc(.x) %in% colnames(raw))
-    ]
+  treatments_present <- STRESS_TREATMENTS_RNA[
+    purrr::map_lgl(STRESS_TREATMENTS_RNA, ~ col_lfc(.x) %in% colnames(raw))
+  ]
 
-    map_dfr(treatments_present, function(trt) {
-        raw %>%
-            dplyr::select(
-                Protein_id,
-                log2FC   = all_of(col_lfc(trt)),
-                fdr      = all_of(col_fdr(trt)),
-                max_mean = all_of(col_mean(trt))
-            ) %>%
-            mutate(
-                Treatment = ifelse(trt == "Mig", "Hyp", trt),
-                log2FC    = as.numeric(log2FC),
-                fdr       = as.numeric(fdr),
-                max_mean  = as.numeric(max_mean)
-            )
-    })
+  purrr::map_dfr(treatments_present, function(trt) {
+    raw |>
+      dplyr::select(
+        Protein_id,
+        log2FC   = dplyr::all_of(col_lfc(trt)),
+        fdr      = dplyr::all_of(col_fdr(trt)),
+        max_mean = dplyr::all_of(col_mean(trt))
+      ) |>
+      dplyr::mutate(
+        # Harmonise treatment label: Mig → Hyp
+        Treatment = ifelse(trt == "Mig", "Hyp", trt),
+        log2FC    = as.numeric(log2FC),
+        fdr       = as.numeric(fdr),
+        max_mean  = as.numeric(max_mean)
+      )
+  })
 }

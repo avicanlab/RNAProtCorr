@@ -36,11 +36,11 @@ knitr::opts_chunk$set(
 # Load library
 library(fs)
 library(purrr)
-library(readxl)
 library(patchwork)
 library(cowplot)
 library(stringr)
 library(tidyverse)
+library(readxl)
 library(showtext)
 library(limma)
 
@@ -169,7 +169,7 @@ source("sources/read_data.R")
 # Load RNA tpm data
 rna_files <- list.files(RNA_DATA, pattern = "\\.xlsx$", full.names = TRUE)
 
-tpm_data <- map_dfr(rna_files, function(rna_file) {
+tpm_data <- map_dfr(rna_files, function (rna_file) {
   species <- get_species_tpm(rna_file)
   abbv <- SPECIES_ABBV_MAP[species]
   read_tpm(rna_file, abbv) %>%
@@ -206,7 +206,7 @@ protein_files <- list.files(
 
 filter_log <- list()
 
-filtered_data <- map_dfr(protein_files, function(protein_file) {
+filtered_data <- map_dfr(protein_files, function (protein_file) {
   species <- sub(".*/(\\w+)_R\\d+\\.tsv$", "\\1", protein_file)
   replicate <- sub(".*/\\w+_(R\\d+)\\.tsv$", "\\1", protein_file)
 
@@ -261,7 +261,7 @@ annotation_files <- list.files(
   full.names = TRUE
 )
 
-annotation_data <- map_dfr(annotation_files, function(annotation_file) {
+annotation_data <- map_dfr(annotation_files, function (annotation_file) {
   species <- path_file(path_dir(annotation_file))
   read_excel(
     annotation_file,
@@ -332,7 +332,7 @@ x_max <- tpm_log2_data %>%
 
 species_list <- unique(tpm_log2_data$Species)
 
-plots <- imap(species_list, function(species, i) {
+plots <- imap(species_list, function (species, i) {
   message("Plotting TPM detection for: ", species)
 
   classified <- classify_tpm_groups(tpm_log2_data, tmt_data, species)
@@ -407,10 +407,10 @@ message("Quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 
 # Dispatch table: method -> quantification function
 quant_fn <- switch(PROTEIN_QUANTIFICATION_METHOD,
-                   RI = function(x) RI_quantification(x),
-                   Intensity = function(x) Intensity_quantification(x),
-                   iBAQ = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
-                   iBAQ_MC = function(x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+                   RI = function (x) RI_quantification(x),
+                   Intensity = function (x) Intensity_quantification(x),
+                   iBAQ = function (x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
+                   iBAQ_MC = function (x) ibaq_quantification(x, protein2tryptic, "n_peptides", OUTPUT_PATH),
                    stop("Unknown quantification method: ", PROTEIN_QUANTIFICATION_METHOD)
 )
 
@@ -477,7 +477,7 @@ message("Combined figure saved: ", output_file, MSG_FIG_FORMAT)
 
 ```{r get-essential-data}
 source("sources/essential_analyses.R")
-log2_mean_sd_transform <- function(data, value_col, group_cols = c("Species", "Protein_id"), pseudocount = FALSE) {
+log2_mean_sd_transform <- function (data, value_col, group_cols = c("Species", "Protein_id"), pseudocount = FALSE) {
   mean_col <- paste0("mean_log2_", value_col)
   sd_col <- paste0("sd_log2_", value_col)
 
@@ -494,10 +494,10 @@ log2_mean_sd_transform <- function(data, value_col, group_cols = c("Species", "P
 
 essential_files <- list.files(ESSENTIAL_GENES, pattern = "\\.xlsx$", full.names = TRUE)
 
-essential_df <- map_dfr(essential_files, function(file) {
+essential_df <- map_dfr(essential_files, function (file) {
   species <- str_extract(basename(file), "Essential_genes_([A-Za-z]+)", group = 1)
   tibble(
-    Species = species_essential2tpm_map[species],
+    Species = SPECIES_ESSENTIAL_TO_TPM_MAP[species],
     Protein_id = read_essential_vec(file)
   )
 })
@@ -608,10 +608,11 @@ corr_essential_rna_prot <- calculate_correlation(
   essential_tpm_df, essential_protQ_df, protQ_meanlog2
 )
 
-p <- plot_essential_vs_all_correlation(
+p <- plot_subset_vs_all_correlation(
   corr_rna_prot,
   corr_essential_rna_prot,
   PROTEIN_QUANTIFICATION_METHOD,
+  "essential",
   OUTPUT_PATH
 )
 print(p)
@@ -767,7 +768,7 @@ norm_data <- run_normalization(
 DEG_PVAL_THRESHOLD <- 0.05
 DE_FC_THRESHOLD <- 0.5
 source("sources/read_data.R")
-deg_raw <- map_dfr(rna_files, function(filepath) {
+deg_raw <- map_dfr(rna_files, function (filepath) {
   species <- tools::file_path_sans_ext(
     str_extract(basename(filepath), "^[A-Za-z]+_[A-Za-z]+")
   )
@@ -798,7 +799,7 @@ DEP_PVAL_THRESHOLD <- 0.05
 
 species_list <- unique(norm_data$Species)
 
-dep_data <- map_dfr(species_list, function(species) {
+dep_data <- map_dfr(species_list, function (species) {
   message("  Running limma DEP for: ", species)
 
   sp_data <- norm_data %>%
@@ -943,7 +944,7 @@ save_plot(combined_scatter, file.path(OUTPUT_PATH, "discordance_scatter"), width
 source("sources/discordant_analyses.R")
 species_list <- unique(discordance_df$Species)
 
-invisible(walk(species_list, function(species) {
+invisible(walk(species_list, function (species) {
   p <- plot_discordance_profiles(
     discordance_df,
     OUTPUT_PATH,
@@ -978,7 +979,7 @@ species_stimulon2tpm_map <- c(
   "SA" = "Staphylococcus_aureus",
   "YP" = "Yersinia_pseudotuberculosis"
 )
-stimulon_df <- map_dfr(stimulon_files, function(file) {
+stimulon_df <- map_dfr(stimulon_files, function (file) {
   extract <- str_extract(basename(file), "([A-Za-z]+)_stimulon_([A-Za-z]+)", group = c(1, 2))
   species <- species_stimulon2tpm_map[extract[[1]]]
   treatment <- extract[[2]]
@@ -1004,30 +1005,17 @@ corr_stimulon_rna_prot <- calculate_correlation(
   stimulon_tpm_df, stimulon_protQ_df, protQ_meanlog2
 )
 
-plots <- plot_stimulon_vs_all_correlation(
+plots <- plot_subset_vs_all_correlation(
   corr_rna_prot,
   corr_stimulon_rna_prot,
   PROTEIN_QUANTIFICATION_METHOD,
+  "stimulon",
   OUTPUT_PATH
 )
-legend <- get_legend(
-  plots[[1]] + theme(legend.position = "right")
-)
 
-plots_no_legend <- map(plots, ~.x + theme(legend.position = "none"))
-
-combined <- plot_grid(
-  plot_grid(
-    plotlist = plots_no_legend,
-    nrow = 3,
-    align = "v",
-    rel_heights = c(1, 1, 1)
-  ),
-  NULL,
-  legend,
-  ncol = 3,
-  rel_widths = c(0.7, 0.05, 0.25)
-)
+combined <- wrap_plots(plots, ncol = 3) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
 
 print(combined)
 output_file <- file.path(
@@ -1037,7 +1025,7 @@ output_file <- file.path(
     "_stimulon_vs_all_correlation"
   )
 )
-save_plot(combined, output_file, width = 6, height = 16)
+save_plot(combined, output_file, width = 12, height = 4)
 
 message(
   "mRNA-Protein correlation all genes vs stimulon genes combined figure saved: ",
@@ -1053,13 +1041,13 @@ organisms <- c("SE", "SA", "YP")
 dir.create(ora_output, recursive = TRUE, showWarnings = FALSE)
 
 # ---- 1. Process MOBILE output -------------------------------------------
-results <- map(organisms, function(org) {
+results <- map(organisms, function (org) {
   data <- read.csv2(file.path(ORA, paste0("connections_ALL_", org, ".csv")))
   process_organism(data, org, ora_output)
 }) %>% setNames(organisms)
 
 # ---- 2. Build GMT files --------------------------------------------------
-walk(organisms, function(org) {
+walk(organisms, function (org) {
   create_gmt(
     term2gene_file = file.path(ORA, paste0(org, "_TERM2GENE.txt")),
     term2name_file = file.path(ORA, paste0(org, "_TERM2NAME.txt")),
@@ -1068,7 +1056,7 @@ walk(organisms, function(org) {
 })
 
 # ---- 3. Run ORA per organism --------------------------------------------
-ora_results <- map(organisms, function(org) {
+ora_results <- map(organisms, function (org) {
   gmt_pathways <- read.gmt(file.path(ora_output, paste0("Updated_", org, "_geneset.gmt")))
   term2name <- read.delim(file.path(ORA, paste0(org, "_TERM2NAME.txt")), header = TRUE)
   run_ora_organism(org, results[[org]], gmt_pathways, term2name, ora_output)
@@ -1086,12 +1074,12 @@ write.csv(combined_specific,
           row.names = FALSE)
 
 # ---- 5. Plot dotplots ---------------------------------------------------
-walk(ORA_CONDITIONS, function(cond) {
+walk(ORA_CONDITIONS, function (cond) {
   combined <- if (grepl("dependent", cond)) combined_dependent else combined_specific
 
   p <- tryCatch(
     plot_ora_dotplot(combined, condition = cond, gap = 0.30),
-    error = function(e) {
+    error = function (e) {
       message("  Skipping dotplot for '", cond, "': ", e$message)
       NULL
     }
@@ -1130,7 +1118,7 @@ wb <- createWorkbook()
 protQ_data %>%
   mutate(Treatment_Replicate = paste(Treatment, str_replace(Replicate, "R", "rep"), sep = "_")) %>%
   group_by(Species) %>%
-  group_walk(function(sp_df, sp_key) {
+  group_walk(function (sp_df, sp_key) {
     species <- sp_key$Species
 
     wide_df <- sp_df %>%
@@ -1243,7 +1231,7 @@ message(sprintf("Found %d species: %s",
                 paste(species_list, collapse = ", ")))
 
 plot2species <- list()
-walk(species_list, function(sp) {
+walk(species_list, function (sp) {
   message("Process pairwise comparison for ", sp)
   sp_df <- protQ_data %>% filter(Species == sp)
   p <- plot_replicate_correlations(
@@ -1329,7 +1317,6 @@ run_normalization_comparison(
 )
 plot_pca_comparison_grid(
   protQ_data = protQ_data,
-  norm_dir = file.path(SUPP_OUTPUT_PATH),
   output_path = SUPP_OUTPUT_PATH
 )
 ```
@@ -1337,9 +1324,6 @@ plot_pca_comparison_grid(
 
 ```{r supp-table--2}
 header <- " Differential expression levels of discordantly regulated genes in the genes clusters with different expression patterns. Gene list for each species are showng in separate sheet for each species."
-
-
-
 
 wb <- createWorkbook()
 
@@ -1349,9 +1333,9 @@ supp_table <- zscore_tpm_df %>%
   select(-c("rna_z", "prot_z", "cluster")) %>%
   mutate(Expression = paste(rna_sig, prot_sig, sep = "-")) %>%
   select(-c("rna_sig", "prot_sig")) %>%
-  distinct() %>% 
+  distinct() %>%
   group_by(Species) %>%
-  group_walk(function(sp_df, sp_key) {
+  group_walk(function (sp_df, sp_key) {
     species <- sp_key$Species
 
     addWorksheet(wb, sheetName = species)
@@ -1366,18 +1350,18 @@ supp_table <- zscore_tpm_df %>%
              ),
              rows = 1, cols = 1)
     setRowHeights(wb, sheet = species, rows = 1, heights = 40)
-    
+
     # --- Row 2: Column headers -------------------------------------------
     writeData(wb, sheet = species, x = as.data.frame(t(colnames(sp_df))),
               startRow = 2, startCol = 1, colNames = FALSE)
     addStyle(wb, sheet = species,
              style = createStyle(
-                 fontName       = "Arial",
-                 fontSize       = 10,
-                 textDecoration = "bold",
-                 fgFill         = "#D9E1F2",
-                 halign         = "center",
-                 border         = "Bottom"
+               fontName = "Arial",
+               fontSize = 10,
+               textDecoration = "bold",
+               fgFill = "#D9E1F2",
+               halign = "center",
+               border = "Bottom"
              ),
              rows = 2, cols = 1:ncol(sp_df), gridExpand = TRUE)
 
@@ -1387,8 +1371,8 @@ supp_table <- zscore_tpm_df %>%
 
     addStyle(wb, sheet = species,
              style = createStyle(fontName = "Arial", fontSize = 10),
-             rows  = 3:(nrow(sp_df) + 2),
-             cols  = 1:ncol(sp_df), gridExpand = TRUE)
+             rows = 3:(nrow(sp_df) + 2),
+             cols = 1:ncol(sp_df), gridExpand = TRUE)
 
     setColWidths(wb, sheet = species,
                  cols = 1:ncol(sp_df), widths = "auto")
@@ -1417,7 +1401,7 @@ deg_discordance_df <- deg_raw %>%
     .groups = "drop"
   )
 
-dep_raw <- map_dfr(species_list, function(species) {
+dep_raw <- map_dfr(species_list, function (species) {
   sp_data <- norm_data %>%
     filter(Species == species, Treatment %in% c("Ctrl", STRESS_TREATMENTS_PROT),
            Protein_id %in% common_ids, is.finite(value))
@@ -1511,12 +1495,68 @@ p <- plot_enrichment_dotplot(
 )
 print(p)
 ```
+
+```{r supp-table--3}
+header <- "Supplementary Table 3. GO Enrichment analysis on gene clusters with different discordantly regulated mRNA and protein level patterns in three speieces. The analysis results for each species are shown in different sheets."
+wb <- createWorkbook()
+col_order <- c("QUALIFIER", "Description", "ID", "GeneRatio", "BgRatio", "pvalue", "p.adjust", "qvalue", "geneID", "Count", "GeneRatio_calc", "BgRatio_calc")
+# Use group_split to get a list of dataframes, one per species
+enrichment_results %>%
+  group_by(Species) %>%
+  group_walk(function (sp_df, sp_key) {
+    species <- sp_key$Species
+    addWorksheet(wb, sheetName = species)
+    writeData(wb, sheet = species, x = header,
+              startRow = 1, startCol = 1)
+    mergeCells(wb, sheet = species,
+               rows = 1, cols = 1:length(col_order))
+    addStyle(wb, sheet = species,
+             style = createStyle(
+               fontName = "Arial", fontSize = 10,
+               textDecoration = "bold", wrapText = TRUE
+             ),
+             rows = 1, cols = 1)
+    setRowHeights(wb, sheet = species, rows = 1, heights = 40)
+    cluster_style <- createStyle(
+      fontName = "Arial", fontSize = 10,
+      textDecoration = "bold", fgFill = "#fff2cc",
+      halign = "center", border = "Bottom"
+    )
+    curr_row <- 2
+    sp_df %>%
+      group_by(Cluster) %>%
+      group_walk(function (cl_df, cl_key) {
+        cl <- cl_key$Cluster
+        # Write the "Separator"
+        writeData(wb, species, x = paste("Cluster: ", CLUSTER_LABELS[[cl]]), startRow = curr_row)
+        mergeCells(wb, sheet = species,
+                   rows = curr_row, cols = 1:length(col_order))
+        addStyle(wb, sheet = species, style = cluster_style,
+                 rows = curr_row, cols = 1)
+        # Write the data below the separator
+        export_df <- cl_df %>%
+          mutate(QUALIFIER = namespace,
+                 GeneRatio_calc = sapply(strsplit(as.character(GeneRatio), "/"), function (x) { as.numeric(x[1]) / as.numeric(x[2]) }),
+                 BgRatio_calc = sapply(strsplit(as.character(BgRatio), "/"), function (x) { as.numeric(x[1]) / as.numeric(x[2]) })
+          ) %>%
+          select(QUALIFIER, Description, ID, GeneRatio, BgRatio, pvalue, p.adjust, qvalue, geneID, Count, GeneRatio_calc, BgRatio_calc)
+        writeData(wb, species, x = export_df, startRow = curr_row + 1)
+
+        # Update row counter (rows + header + separator + gap)
+        curr_row <<- curr_row + nrow(export_df) + 3
+      })
+  })
+
+output_file <- file.path(SUPP_OUTPUT_PATH, "Supplementary_Table_3.xlsx")
+saveWorkbook(wb, output_file, overwrite = TRUE)
+message("Excel file saved: ", output_file)
+```
 ## Protein and peptide lengths
 
 ```{r prot-length}
 source("sources/protein_quantification.R")
 
-fasta_lengths_df <- bind_rows(lapply(fasta_files, function(fp) {
+fasta_lengths_df <- bind_rows(lapply(fasta_files, function (fp) {
   sp <- tools::file_path_sans_ext(
     stringr::str_extract(basename(fp), "^[A-Za-z]+_[A-Za-z]+"))
   fa <- Biostrings::readAAStringSet(fp)
@@ -1574,7 +1614,7 @@ print(fig)
 lock <- renv::lockfile_read("renv.lock")
 
 # 2. Extract only the simple, non-list fields
-clean_list <- lapply(lock$Packages, function(pkg) {
+clean_list <- lapply(lock$Packages, function (pkg) {
   # We manually pick the fields that are strings, not lists
   data.frame(
     Package = pkg$Package %||% NA,
@@ -1643,7 +1683,7 @@ sp2abbv <- list(
   "Yersinia_pseudotuberculosis" = "YP"
 )
 
-iwalk(full_df_list, function(df, species) {
+iwalk(full_df_list, function (df, species) {
   output_file <- file.path("Analyses_iBAQ", paste0("iBAQ_data_", sp2abbv[[species]], ".tsv"))
   write.table(
     df,
@@ -1654,7 +1694,7 @@ iwalk(full_df_list, function(df, species) {
   )
 })
 
-iwalk(mean_df_list, function(df, species) {
+iwalk(mean_df_list, function (df, species) {
   output_file <- file.path("Analyses_iBAQ", paste0("iBAQ_data_mean_", sp2abbv[[species]], ".tsv"))
   write.table(
     df,
