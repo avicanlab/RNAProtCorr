@@ -129,6 +129,7 @@ library(sysfonts)   # font_add() — must be loaded before showtext
 library(showtext)
 library(limma)
 library(openxlsx)
+library(clusterProfiler)
 
 source("sources/utils.R")
 ```
