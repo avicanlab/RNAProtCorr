@@ -39,11 +39,11 @@ renv::restore()
 
 **Common issues**
 
-| Problem | Solution |
-|---|---|
-| `BiocParallel` fails to compile | Update Rtools to match your R version, then re-run `renv::restore()` |
-| A single package cannot be installed | Exclude it: `renv::restore(exclude = "pkgName")`, then install manually with `install.packages()` or `BiocManager::install()` |
-| `renv::restore()` asks to activate — say **yes** | This links the project library so packages are isolated |
+| Problem                                          | Solution                                                                                                                      |
+|--------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `BiocParallel` fails to compile                  | Update Rtools to match your R version, then re-run `renv::restore()`                                                          |
+| A single package cannot be installed             | Exclude it: `renv::restore(exclude = "pkgName")`, then install manually with `install.packages()` or `BiocManager::install()` |
+| `renv::restore()` asks to activate — say **yes** | This links the project library so packages are isolated                                                                       |
 
 ## 3 — Download data from Zenodo
 
@@ -186,6 +186,14 @@ TREATMENT_SHAPES <- c(
   "Li"  = 7,  "Nd"  = 8,  "Ns"   = 4,  "Oss" = 22,
   "Oxs" = 21, "Sp"  = 23, "Tm"   = 2
 )
+
+TREATMENT_COLOR <- c(
+  "As" = "#F8766D", "Bs" = "#D89000", "Hyp" = "#A3A500",
+  "Li" = "#39B600", "Nd" = "#00BF7D", "Ns" = "#00BFC4",
+  "Oss" = "#00B0F6", "Oxs" = "#9590FF", "Sp" = "#E76BF3",
+  "Tm" = "#FF62BC", "Ctrl" = "black"
+)
+
 
 # ── Protein quantification method ──────────────────────────────────────────────
 # Uncomment the desired method (only one should be active):
@@ -1002,14 +1010,44 @@ plots <- plot_subset_vs_all_correlation(
   PROTEIN_QUANTIFICATION_METHOD, "stimulon", OUTPUT_PATH
 )
 
-combined <- patchwork::wrap_plots(plots, ncol = 3) +
-  patchwork::plot_layout(guides = "collect") &
+guide_plot <- ggplot2::ggplot(
+    data.frame(t = names(TREATMENT_COLOR)), 
+    ggplot2::aes(x = 1, y = 1, color = t)
+  ) +
+  ggplot2::geom_point() +
+  ggplot2::scale_color_manual(
+    values = TREATMENT_COLOR, 
+    limits = names(TREATMENT_COLOR), 
+    drop = FALSE,
+    name = "Treatment"
+  ) +
+  # THIS PART FORCES THE MULTI-LINE OR HORIZONTAL LAYOUT
+  ggplot2::guides(
+    color = ggplot2::guide_legend(
+      nrow = 1,           # Change to 2 or 3 if you have many treatments
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  theme_publication() +
   ggplot2::theme(legend.position = "top")
+
+# 2. Extract the legend
+shared_legend <- cowplot::get_legend(guide_plot)
+
+# 3. Assemble
+# Increase rel_heights for the first element if the legend still looks cut off
+combined <- cowplot::plot_grid(
+  shared_legend, 
+  cowplot::plot_grid(plotlist = plots, ncol = 3), 
+  ncol = 1, 
+  rel_heights = c(0.15, 0.85) # Give the legend 15% of the total height
+)
 
 print(combined)
 
 output_file <- file.path(OUTPUT_PATH, "stimulon_vs_all_correlation")
-save_plot(combined, output_file, width = 12, height = 4)
+save_plot(combined, output_file, width = 12, height = 6)
 message("Stimulon vs all correlation figure saved: ", output_file, MSG_FIG_FORMAT)
 ```
 
@@ -1023,8 +1061,18 @@ organisms  <- c("SE", "SA", "YP")
 dir.create(ora_output, recursive = TRUE, showWarnings = FALSE)
 
 # 1. Process MOBILE output
+col_names <- c(
+    "ID_TPM", "ID_iBAQ",
+    "FULLdata_coeff", "abs", "presence_in_FULL",
+    "LOGO_OSS_coeff", "abs.8", "presence_in_LOGO_OSS",
+    "LOGO_CTRL_coeff", "abs.3", "presence_in_LOGO_CTRL"
+)
+
 results <- purrr::map(organisms, function(org) {
-  data <- utils::read.csv2(file.path(ORA, paste0("connections_ALL_", org, ".csv")))
+  connection_file <-paste0("interctlist_ALL_", org, ".xlsx")
+  data <- readxl::read_excel(file.path(ORA, connection_file)) |>
+    dplyr::select(c(3,5,10,11,12,13,14,15,16,17,18)) |>
+    setNames(col_names)
   process_organism(data, org, ora_output)
 }) |>
   setNames(organisms)

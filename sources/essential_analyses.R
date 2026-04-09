@@ -13,8 +13,8 @@
 
 #' Mapping from essential-gene file abbreviations to full species names
 SPECIES_ESSENTIAL_TO_TPM_MAP <- c(
-  "Senterica"           = "Salmonella_enterica",
-  "Saureus"             = "Staphylococcus_aureus",
+  "Senterica" = "Salmonella_enterica",
+  "Saureus" = "Staphylococcus_aureus",
   "Ypseudotuberculosis" = "Yersinia_pseudotuberculosis"
 )
 
@@ -30,7 +30,7 @@ SPECIES_ESSENTIAL_TO_TPM_MAP <- c(
 #'
 #' @return Tibble with a `group` factor column (`"Essential"` /
 #'   `"Non-Essential"`).
-.annotate_essential_group <- function(all_df, essential_df, value_col) {
+.annotate_essential_group <- function (all_df, essential_df, value_col) {
   all_df |>
     dplyr::left_join(
       dplyr::mutate(essential_df, group = "Essential"),
@@ -46,7 +46,7 @@ SPECIES_ESSENTIAL_TO_TPM_MAP <- c(
 }
 
 #' Build the x-axis label for essential-gene distribution plots
-.essential_x_label <- function(x_lab, type = c("mean", "sd")) {
+.essential_x_label <- function (x_lab, type = c("mean", "sd")) {
   type <- match.arg(type)
   if (type == "mean") {
     bquote(.(ifelse(x_lab == "TPM", "mRNA", "Protein")) ~
@@ -77,24 +77,24 @@ SPECIES_ESSENTIAL_TO_TPM_MAP <- c(
 #' @param output_path  Character. Directory for saving output files.
 #'
 #' @return A patchwork plot of all species combined (invisible).
-plot_essential_distribution_per_treatment <- function(
+plot_essential_distribution_per_treatment <- function (
   all_df, essential_df, log2_col, x_lab, output_path
 ) {
   condition_df <- .annotate_essential_group(all_df, essential_df, log2_col)
-  x_label      <- .essential_x_label(x_lab, type = "mean")
+  x_label <- .essential_x_label(x_lab, type = "mean")
 
   sp_plots <- condition_df |>
     dplyr::group_by(Species) |>
-    dplyr::group_map(function(sp_df, sp_key) {
-      species   <- sp_key$Species
-      title_sp  <- format_species_title(species)
-      x_lim     <- range(sp_df[[log2_col]], na.rm = TRUE)
+    dplyr::group_map(function (sp_df, sp_key) {
+      species <- sp_key$Species
+      title_sp <- format_species_title(species)
+      x_lim <- range(sp_df[[log2_col]], na.rm = TRUE)
 
       treatment_plots <- sp_df |>
         dplyr::group_by(Treatment) |>
-        dplyr::group_map(function(treat_df, treat_key) {
+        dplyr::group_map(function (treat_df, treat_key) {
           treatment <- treat_key$Treatment
-          p_value   <- stats::wilcox.test(
+          p_value <- stats::wilcox.test(
             stats::as.formula(paste(log2_col, "~ group")),
             data = treat_df
           )$p.value
@@ -111,18 +111,18 @@ plot_essential_distribution_per_treatment <- function(
             ggplot2::annotate(
               "text",
               x = Inf, y = Inf,
-              label  = format.pval(p_value, digits = 2, eps = .Machine$double.xmin),
-              hjust  = 1.1, vjust = 1.5, size = 6, fontface = "italic"
+              label = format.pval(p_value, digits = 2, eps = .Machine$double.xmin),
+              hjust = 1.1, vjust = 1.5, size = 6, fontface = "italic"
             ) +
             ggplot2::labs(
               title = treatment,
-              x     = x_label,
-              y     = "Frequency",
-              fill  = NULL
+              x = x_label,
+              y = "Frequency",
+              fill = NULL
             ) +
             theme_publication() +
             ggplot2::theme(
-              plot.title    = ggplot2::element_text(face = "italic", hjust = 0.5),
+              plot.title = ggplot2::element_text(face = "italic", hjust = 0.5),
               legend.position = "none"
             )
         })
@@ -132,8 +132,8 @@ plot_essential_distribution_per_treatment <- function(
           title = title_sp,
           theme = ggplot2::theme(
             plot.title = ggplot2::element_text(
-              face   = "bold.italic",
-              hjust  = 0.5,
+              face = "bold.italic",
+              hjust = 0.5,
               margin = ggplot2::margin(b = 20)
             )
           )
@@ -144,7 +144,7 @@ plot_essential_distribution_per_treatment <- function(
       save_plot(
         sp_plot,
         file.path(output_path, species, paste(x_lab, "per_treatment_essential_distribution", sep = "_")),
-        width  = 21,
+        width = 21,
         height = 24
       )
       sp_plot
@@ -169,17 +169,17 @@ plot_essential_distribution_per_treatment <- function(
 #' @param output_path  Character. Directory for saving output files.
 #'
 #' @return A patchwork plot of all species combined (invisible).
-plot_essential_distribution <- function(
+plot_essential_distribution <- function (
   all_df, essential_df, log2_col, x_lab, output_path
 ) {
   condition_df <- .annotate_essential_group(all_df, essential_df, log2_col)
-  x_label      <- .essential_x_label(x_lab, type = "mean")
+  x_label <- .essential_x_label(x_lab, type = "mean")
 
   plots <- condition_df |>
     dplyr::group_by(Species) |>
-    dplyr::group_map(function(sp_df, sp_key) {
-      species  <- sp_key$Species
-      p_value  <- stats::wilcox.test(
+    dplyr::group_map(function (sp_df, sp_key) {
+      species <- sp_key$Species
+      p_value <- stats::wilcox.test(
         stats::as.formula(paste(log2_col, "~ group")),
         data = sp_df
       )$p.value
@@ -196,14 +196,14 @@ plot_essential_distribution <- function(
         ggplot2::annotate(
           "text",
           x = Inf, y = Inf,
-          label  = format.pval(p_value, digits = 2, eps = .Machine$double.xmin),
-          hjust  = 1.1, vjust = 1.5, size = 3.5, fontface = "italic"
+          label = format.pval(p_value, digits = 2, eps = .Machine$double.xmin),
+          hjust = 1.1, vjust = 1.5, size = 3.5, fontface = "italic"
         ) +
         ggplot2::labs(
           title = title_sp,
-          x     = x_label,
-          y     = "Frequency",
-          fill  = NULL
+          x = x_label,
+          y = "Frequency",
+          fill = NULL
         ) +
         theme_publication() +
         ggplot2::theme(legend.position = c(0.85, 0.85))
@@ -211,7 +211,7 @@ plot_essential_distribution <- function(
       save_plot(
         p,
         file.path(output_path, species, paste0(x_lab, "_essential_distribution")),
-        width  = 12,
+        width = 12,
         height = 4
       )
       p
@@ -237,17 +237,17 @@ plot_essential_distribution <- function(
 #' @param output_path  Character. Directory for saving output files.
 #'
 #' @return A patchwork plot of all species combined (invisible).
-plot_sd_distribution <- function(
+plot_sd_distribution <- function (
   all_df, essential_df, sd_col, x_lab, output_path
 ) {
   condition_df <- .annotate_essential_group(all_df, essential_df, sd_col)
-  x_label      <- .essential_x_label(x_lab, type = "sd")
+  x_label <- .essential_x_label(x_lab, type = "sd")
 
   plots <- condition_df |>
     dplyr::group_by(Species) |>
-    dplyr::group_map(function(sp_df, sp_key) {
-      species  <- sp_key$Species
-      p_value  <- stats::wilcox.test(
+    dplyr::group_map(function (sp_df, sp_key) {
+      species <- sp_key$Species
+      p_value <- stats::wilcox.test(
         stats::as.formula(paste(sd_col, "~ group")),
         data = sp_df
       )$p.value
@@ -256,8 +256,8 @@ plot_sd_distribution <- function(
       p <- ggplot2::ggplot(sp_df, ggplot2::aes(x = .data[[sd_col]], color = group)) +
         ggplot2::geom_step(
           ggplot2::aes(y = ggplot2::after_stat(density)),
-          stat      = "bin",
-          binwidth  = 0.05,
+          stat = "bin",
+          binwidth = 0.05,
           linewidth = 0.8,
           direction = "mid"
         ) +
@@ -267,25 +267,25 @@ plot_sd_distribution <- function(
         ggplot2::annotate(
           "text",
           x = Inf, y = Inf,
-          label    = sprintf("p-value: %.2e", p_value),
-          hjust    = 1.1, vjust = 1.5, size = 8, fontface = "italic"
+          label = sprintf("p-value: %.2e", p_value),
+          hjust = 1.1, vjust = 1.5, size = 8, fontface = "italic"
         ) +
         ggplot2::labs(
           title = title_sp,
-          x     = x_label,
-          y     = "Frequency",
+          x = x_label,
+          y = "Frequency",
           color = NULL
         ) +
         theme_publication(legend_position = c(0.75, 0.85)) +
         ggplot2::theme(
-          plot.title        = ggplot2::element_text(hjust = 0.5),
+          plot.title = ggplot2::element_text(hjust = 0.5),
           legend.background = ggplot2::element_rect(fill = "white", color = NA)
         )
 
       save_plot(
         p,
         file.path(output_path, species, paste0(x_lab, "_sd_distribution")),
-        width  = 16,
+        width = 16,
         height = 8
       )
       p
@@ -323,35 +323,43 @@ plot_sd_distribution <- function(
 #'
 #' @return List of ggplot objects (one per species), assembled with
 #'   `patchwork::wrap_plots()`.
-plot_subset_vs_all_correlation <- function(
+plot_subset_vs_all_correlation <- function (
   corr_all_df, corr_subset_df, measurement, subset_label, output_path
 ) {
   r_subset_col <- paste0("R_", subset_label)
 
   plot_df <- dplyr::inner_join(
-    dplyr::rename(dplyr::distinct(corr_all_df,    Species, Treatment, R), R_all = R),
+    dplyr::rename(dplyr::distinct(corr_all_df, Species, Treatment, R), R_all = R),
     dplyr::rename(dplyr::distinct(corr_subset_df, Species, Treatment, R), !!r_subset_col := R),
     by = c("Species", "Treatment")
   )
-
+  # Define all possible treatments explicitly
+  all_treatments <- names(TREATMENT_COLOR)
+  xy_lim <- c(min(min(plot_df$R_all), min(plot_df[[r_subset_col]])),
+              max(max(plot_df$R_all), max(plot_df[[r_subset_col]])))
   plot_df |>
     dplyr::group_by(Species) |>
-    dplyr::group_map(function(sp_df, sp_key) {
-      species  <- sp_key$Species
+    dplyr::group_map(function (sp_df, sp_key) {
+      species <- sp_key$Species
       title_sp <- format_species_title(species)
 
+      # Convert the column to a factor with these fixed levels
+      sp_df$Treatment <- factor(sp_df$Treatment, levels = all_treatments)
+
       p <- ggplot2::ggplot(sp_df, ggplot2::aes(x = R_all, y = .data[[r_subset_col]], color = Treatment)) +
-        ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed",
-                             color = "grey60", linewidth = 0.6) +
-        ggplot2::geom_point(size = 4, alpha = 0.9) +
+        ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60", linewidth = 0.6) +
+        ggplot2::geom_point(size = 2, alpha = 0.9) +
+        ggplot2::coord_fixed(ratio = 1, xlim = xy_lim, ylim = xy_lim) +
+        # Use only ONE scale_color_manual
         ggplot2::scale_color_manual(
-          values = setNames(scales::hue_pal()(nrow(sp_df)), sp_df$Treatment)
+          values = TREATMENT_COLOR,
+          limits = names(TREATMENT_COLOR),
+          drop = FALSE
         ) +
-        ggplot2::coord_fixed(ratio = 1, xlim = c(0.45, 0.9), ylim = c(0.45, 0.9)) +
         ggplot2::labs(
           title = title_sp,
-          x     = "All genes'\nmRNA-protein level correlation",
-          y     = paste0(stringr::str_to_title(subset_label), " genes'\nmRNA-protein level correlation"),
+          x = "All genes'\nmRNA-protein level correlation",
+          y = paste0(stringr::str_to_title(subset_label), " genes'\nmRNA-protein level correlation"),
           color = "Treatment"
         ) +
         theme_publication(legend_position = "right") +
@@ -363,9 +371,10 @@ plot_subset_vs_all_correlation <- function(
       save_plot(
         p,
         file.path(output_path, species, paste0(measurement, "_", subset_label, "_vs_all_correlation")),
-        width  = 5,
+        width = 5,
         height = 5
       )
-      p
+      p +
+        ggplot2::theme(legend.position = "none")
     })
 }
