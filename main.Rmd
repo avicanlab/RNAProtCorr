@@ -1106,16 +1106,10 @@ utils::write.csv(combined_specific,  file.path(OUTPUT_PATH, "ORA_specific_combin
 # 5. Dot plots for each condition
 purrr::walk(ORA_CONDITIONS, function(cond) {
   combined <- if (grepl("dependent", cond)) combined_dependent else combined_specific
-  p <- tryCatch(
-    plot_ora_dotplot(combined, condition = cond, gap = 0.30),
-    error = function(e) { message("  Skipping dotplot for '", cond, "': ", e$message); NULL }
-  )
-  if (!is.null(p)) {
-    filename <- file.path(OUTPUT_PATH, paste0("ORA_", gsub(" ", "_", cond), "_dotplot.png"))
-    ggplot2::ggsave(filename, p, width = DOTPLOT_WIDTH, height = DOTPLOT_HEIGHT, dpi = 300)
-    message("  Saved: ", filename)
-    print(p)
-  }
+  p <- plot_ora_dotplot(combined, condition = cond, gap = 0.30)
+  output_file <- file.path(OUTPUT_PATH, paste0("ORA_", gsub(" ", "_", cond), "_dotplot"))
+  save_plot(p, output_file, width = 5, height = 9)
+  print(p)
 })
 
 message("ORA pipeline complete. Results saved to: ", OUTPUT_PATH)

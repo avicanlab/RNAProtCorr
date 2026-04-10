@@ -37,17 +37,17 @@ ORG_SPECIES_MAP <- c(
 ORA_CONDITIONS <- c("CTRL dependent", "CTRL specific", "OSS dependent", "OSS specific")
 
 #' Minimum absolute coefficient threshold for interaction filtering
-ABS_COEFF_THRESHOLD <- 0.01
+ABS_COEFF_THRESHOLD <- 0.2
 
 #' ORA parameters
 ORA_MIN_GS <- 5
 ORA_MAX_GS <- 500
-ORA_PVAL   <- 0.05
-ORA_QVAL   <- 0.25
+ORA_PVAL <- 0.05
+ORA_QVAL <- 0.25
 
 #' Dot-plot display parameters
-DOTPLOT_TOP_N  <- 20
-DOTPLOT_WIDTH  <- 5
+DOTPLOT_TOP_N <- 20
+DOTPLOT_WIDTH <- 5
 DOTPLOT_HEIGHT <- 8
 
 # ── Data processing ────────────────────────────────────────────────────────────
@@ -73,11 +73,11 @@ DOTPLOT_HEIGHT <- 8
 #'   - `unique_genes_oss`      : character vector of OSS-dependent gene IDs
 #'   - `unique_genes_ctrl_only`: genes unique to CTRL (not in OSS)
 #'   - `unique_genes_oss_only` : genes unique to OSS (not in CTRL)
-process_organism <- function(data, org, output_path) {
+process_organism <- function (data, org, output_path) {
   message("Processing organism: ", org)
 
   # Internal helper: extract gained/lost interactions for one LOGO condition
-  extract_condition_matrix <- function(presence_col, coeff_col, abs_col) {
+  extract_condition_matrix <- function (presence_col, coeff_col, abs_col) {
     data |>
       dplyr::filter(
         (.data[[presence_col]] == 1 & presence_in_FULL == 0) |
@@ -97,23 +97,23 @@ process_organism <- function(data, org, output_path) {
   }
 
   ctrl_matrix <- extract_condition_matrix("presence_in_LOGO_CTRL", "LOGO_CTRL_coeff", "abs.3")
-  oss_matrix  <- extract_condition_matrix("presence_in_LOGO_OSS",  "LOGO_OSS_coeff",  "abs.8")
+  oss_matrix <- extract_condition_matrix("presence_in_LOGO_OSS", "LOGO_OSS_coeff", "abs.8")
 
-  unique_genes_ctrl      <- unique(c(ctrl_matrix$ID_TPM, ctrl_matrix$ID_iBAQ))
-  unique_genes_oss       <- unique(c(oss_matrix$ID_TPM,  oss_matrix$ID_iBAQ))
+  unique_genes_ctrl <- unique(c(ctrl_matrix$ID_TPM, ctrl_matrix$ID_iBAQ))
+  unique_genes_oss <- unique(c(oss_matrix$ID_TPM, oss_matrix$ID_iBAQ))
   unique_genes_ctrl_only <- setdiff(unique_genes_ctrl, unique_genes_oss)
-  unique_genes_oss_only  <- setdiff(unique_genes_oss,  unique_genes_ctrl)
+  unique_genes_oss_only <- setdiff(unique_genes_oss, unique_genes_ctrl)
 
   write_outputs <- list(
-    list(data = ctrl_matrix,            file = paste0(org, "_CTRL_dependent_matrix.csv"),         sep = ";"),
-    list(data = oss_matrix,             file = paste0(org, "_OSS_dependent_matrix.csv"),          sep = ";"),
-    list(data = unique_genes_ctrl,      file = paste0("unique_genes_LOGO_CTRL_", org, ".csv"),    sep = ","),
-    list(data = unique_genes_oss,       file = paste0("unique_genes_LOGO_OSS_",  org, ".csv"),    sep = ","),
+    list(data = ctrl_matrix, file = paste0(org, "_CTRL_dependent_matrix.csv"), sep = ";"),
+    list(data = oss_matrix, file = paste0(org, "_OSS_dependent_matrix.csv"), sep = ";"),
+    list(data = unique_genes_ctrl, file = paste0("unique_genes_LOGO_CTRL_", org, ".csv"), sep = ","),
+    list(data = unique_genes_oss, file = paste0("unique_genes_LOGO_OSS_", org, ".csv"), sep = ","),
     list(data = unique_genes_ctrl_only, file = paste0("unique_genes_CTRL_only_not_in_OSS_", org, ".csv"), sep = ","),
-    list(data = unique_genes_oss_only,  file = paste0("unique_genes_OSS_not_in_CTRL_",      org, ".csv"), sep = ",")
+    list(data = unique_genes_oss_only, file = paste0("unique_genes_OSS_not_in_CTRL_", org, ".csv"), sep = ",")
   )
 
-  purrr::walk(write_outputs, function(x) {
+  purrr::walk(write_outputs, function (x) {
     utils::write.table(x$data, file.path(output_path, x$file),
                        sep = x$sep, row.names = FALSE, quote = FALSE)
   })
@@ -124,12 +124,12 @@ process_organism <- function(data, org, output_path) {
   message("  OSS-specific  (not CTRL)    : ", length(unique_genes_oss_only))
 
   list(
-    ctrl_matrix           = ctrl_matrix,
-    oss_matrix            = oss_matrix,
-    unique_genes_ctrl     = unique_genes_ctrl,
-    unique_genes_oss      = unique_genes_oss,
+    ctrl_matrix = ctrl_matrix,
+    oss_matrix = oss_matrix,
+    unique_genes_ctrl = unique_genes_ctrl,
+    unique_genes_oss = unique_genes_oss,
     unique_genes_ctrl_only = unique_genes_ctrl_only,
-    unique_genes_oss_only  = unique_genes_oss_only
+    unique_genes_oss_only = unique_genes_oss_only
   )
 }
 
@@ -148,7 +148,7 @@ process_organism <- function(data, org, output_path) {
 #' @param output_gmt_file Character. Path for the GMT output file.
 #'
 #' @return NULL invisibly.
-create_gmt <- function(term2gene_file, term2name_file, output_gmt_file) {
+create_gmt <- function (term2gene_file, term2name_file, output_gmt_file) {
   term2gene <- utils::read.delim(term2gene_file, header = TRUE)
   term2name <- utils::read.delim(term2name_file, header = TRUE)
 
@@ -181,7 +181,7 @@ create_gmt <- function(term2gene_file, term2name_file, output_gmt_file) {
 #'
 #' @return Tibble with ORA results and a `Condition` column, or an empty
 #'   tibble when no enrichment is found.
-run_ora <- function(gene_vector, label, gmt_pathways, term2name) {
+run_ora <- function (gene_vector, label, gmt_pathways, term2name) {
   if (length(gene_vector) == 0) {
     message("  No genes for condition: ", label, " — skipping.")
     return(tibble::tibble())
@@ -189,14 +189,14 @@ run_ora <- function(gene_vector, label, gmt_pathways, term2name) {
 
   ora <- tryCatch(
     clusterProfiler::enricher(
-      gene         = gene_vector,
-      TERM2GENE    = gmt_pathways,
-      minGSSize    = ORA_MIN_GS,
-      maxGSSize    = ORA_MAX_GS,
+      gene = gene_vector,
+      TERM2GENE = gmt_pathways,
+      minGSSize = ORA_MIN_GS,
+      maxGSSize = ORA_MAX_GS,
       pvalueCutoff = ORA_PVAL,
       qvalueCutoff = ORA_QVAL
     ),
-    error = function(e) { message("  enricher error: ", e$message); NULL }
+    error = function (e) { message("  enricher error: ", e$message); NULL }
   )
 
   if (is.null(ora) || nrow(ora@result) == 0) {
@@ -210,7 +210,7 @@ run_ora <- function(gene_vector, label, gmt_pathways, term2name) {
     dplyr::left_join(term2name, by = c("ID" = "TERM")) |>
     dplyr::mutate(
       Description = ONTOLOGY,
-      Condition   = label
+      Condition = label
     ) |>
     dplyr::filter(!is.na(qvalue))
 }
@@ -228,20 +228,20 @@ run_ora <- function(gene_vector, label, gmt_pathways, term2name) {
 #' @param output_path  Character. Output directory.
 #'
 #' @return Named list: `dependent` and `specific` (tibbles of ORA results).
-run_ora_organism <- function(org, results, gmt_pathways, term2name, output_path) {
+run_ora_organism <- function (org, results, gmt_pathways, term2name, output_path) {
   message("\nRunning ORA for: ", org)
 
-  ora_ctrl_dep  <- run_ora(results$unique_genes_ctrl,      "CTRL dependent", gmt_pathways, term2name)
-  ora_oss_dep   <- run_ora(results$unique_genes_oss,       "OSS dependent",  gmt_pathways, term2name)
-  ora_ctrl_spec <- run_ora(results$unique_genes_ctrl_only, "CTRL specific",  gmt_pathways, term2name)
-  ora_oss_spec  <- run_ora(results$unique_genes_oss_only,  "OSS specific",   gmt_pathways, term2name)
+  ora_ctrl_dep <- run_ora(results$unique_genes_ctrl, "CTRL dependent", gmt_pathways, term2name)
+  ora_oss_dep <- run_ora(results$unique_genes_oss, "OSS dependent", gmt_pathways, term2name)
+  ora_ctrl_spec <- run_ora(results$unique_genes_ctrl_only, "CTRL specific", gmt_pathways, term2name)
+  ora_oss_spec <- run_ora(results$unique_genes_oss_only, "OSS specific", gmt_pathways, term2name)
 
   dependent <- dplyr::bind_rows(ora_ctrl_dep, ora_oss_dep)
-  specific  <- dplyr::bind_rows(ora_ctrl_spec, ora_oss_spec) |>
+  specific <- dplyr::bind_rows(ora_ctrl_spec, ora_oss_spec) |>
     dplyr::filter(!is.na(Description))
 
   utils::write.csv(dependent, file.path(output_path, paste0("ORA_dependent_CTRL_OSS_", org, ".csv")), row.names = FALSE)
-  utils::write.csv(specific,  file.path(output_path, paste0("ORA_specific_CTRL_OSS_",  org, ".csv")), row.names = FALSE)
+  utils::write.csv(specific, file.path(output_path, paste0("ORA_specific_CTRL_OSS_", org, ".csv")), row.names = FALSE)
 
   list(dependent = dependent, specific = specific)
 }
@@ -256,8 +256,8 @@ run_ora_organism <- function(org, results, gmt_pathways, term2name, output_path)
 #'   by organism abbreviation (e.g. `list(SE = ..., SA = ..., YP = ...)`).
 #'
 #' @return Combined tibble with a `Dataset` column.
-combine_ora_results <- function(ora_list) {
-  combined <- purrr::map_dfr(names(ora_list), function(org) {
+combine_ora_results <- function (ora_list) {
+  combined <- purrr::map_dfr(names(ora_list), function (org) {
     df <- ora_list[[org]]
     if (is.null(df) || nrow(df) == 0) return(NULL)
     dplyr::mutate(df, Dataset = org)
@@ -268,7 +268,7 @@ combine_ora_results <- function(ora_list) {
   combined |>
     dplyr::filter(!is.na(Description)) |>
     dplyr::mutate(dplyr::across(c(pvalue, p.adjust, qvalue, Count), as.numeric)) |>
-    dplyr::mutate(dplyr::across(c(pvalue, p.adjust, qvalue), ~ tidyr::replace_na(.x, 1)))
+    dplyr::mutate(dplyr::across(c(pvalue, p.adjust, qvalue), ~tidyr::replace_na(.x, 1)))
 }
 
 # ── Visualisation ──────────────────────────────────────────────────────────────
@@ -288,16 +288,22 @@ combine_ora_results <- function(ora_list) {
 #'   Default `DOTPLOT_TOP_N`.
 #'
 #' @return ggplot object.
-plot_ora_dotplot <- function(
+plot_ora_dotplot <- function (
   combined,
   condition = ORA_CONDITIONS,
-  gap       = 0.35,
-  top_n     = DOTPLOT_TOP_N
+  gap = 0.35,
+  top_n = DOTPLOT_TOP_N
 ) {
   condition <- match.arg(condition)
+  # term2name <- readxl::read_excel(
+  #   file.path(ENRICHMENT, "GO_terms_from_database.xlsx")
+  # ) |>
+  #   dplyr::filter(Obsolete == FALSE, namespace == "Biological Process")
+  # combined <- combined |>
+  #   dplyr::filter(ID %in% term2name$ID)
 
   required_cols <- c("Condition", "Dataset", "Description", "Count", "p.adjust")
-  missing_cols  <- setdiff(required_cols, colnames(combined))
+  missing_cols <- setdiff(required_cols, colnames(combined))
   if (length(missing_cols) > 0) {
     stop("Missing column(s): ", paste(missing_cols, collapse = ", "))
   }
@@ -305,7 +311,7 @@ plot_ora_dotplot <- function(
   plot_data <- combined |>
     dplyr::filter(Condition == condition) |>
     dplyr::mutate(
-      Dataset     = trimws(as.character(Dataset)),
+      Dataset = trimws(as.character(Dataset)),
       Description = as.character(Description)
     )
 
@@ -322,38 +328,31 @@ plot_ora_dotplot <- function(
     dplyr::filter(Description %in% top_paths) |>
     dplyr::mutate(
       neglog10 = -log10(p.adjust),
-      pathway  = factor(Description, levels = rev(top_paths)),
-      x        = dplyr::case_when(
-        Dataset == "SE" ~ 1,
-        Dataset == "YP" ~ 1 + gap,
-        TRUE            ~ NA_real_
-      )
-    ) |>
-    dplyr::filter(!is.na(x))
+      pathway = factor(Description, levels = rev(top_paths)),
+      Dataset = factor(Dataset, levels = c("SE", "SA", "YP"))
+    )
 
-  ggplot2::ggplot(plot_data, ggplot2::aes(x = x, y = pathway, size = Count, fill = neglog10)) +
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(x = Dataset, y = pathway, size = Count, fill = neglog10)) +
     ggplot2::geom_point(shape = 21, colour = "black", alpha = 0.85) +
-    ggplot2::scale_x_continuous(
-      breaks = c(1, 1 + gap),
-      labels = c("SE", "YP"),
-      limits = c(1 - gap / 2, 1 + gap + gap / 2)
+    ggplot2::scale_x_discrete(
+      limits = c("SE", "SA", "YP"),
+      drop = FALSE
     ) +
     ggplot2::scale_fill_gradient(
-      low  = "#fedad0",
+      low = "#fedad0",
       high = "#a72604",
       name = "-log10(FDR)"
     ) +
     ggplot2::scale_size_continuous(name = "Gene Count") +
     ggplot2::labs(
       title = paste(condition, "\u2014 ORA"),
-      x     = "Dataset",
-      y     = "Pathway"
+      x = "Dataset",
+      y = "Pathway"
     ) +
-    ggplot2::theme_bw() +
+    theme_publication() +
     ggplot2::theme(
-      axis.text.x  = ggplot2::element_text(angle = 0, hjust = 0.5, size = 10),
-      axis.text.y  = ggplot2::element_text(size = 8),
-      plot.title   = ggplot2::element_text(hjust = 0.5, face = "bold"),
-      panel.grid   = ggplot2::element_blank()
+      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5),
+      plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"),
+      panel.grid = ggplot2::element_blank()
     )
 }
