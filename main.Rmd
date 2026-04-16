@@ -23,8 +23,8 @@ pkgdown:
 ## 1 — Clone the repository
 
 ```bash
-git clone https://github.com/<org>/<repo>.git
-cd <repo>
+git clone https://github.com/avicanlab/RNAProtCorr
+cd RNAProtCorr
 ```
 
 ## 2 — Restore the R environment with renv
@@ -48,32 +48,51 @@ renv::restore()
 ## 3 — Download data from Zenodo
 
 All raw data files are archived on Zenodo at
-**<https://doi.org/10.5281/zenodo.XXXXXXX>**.
+**[https://zenodo.org/records/19488690](https://zenodo.org/records/19488690)**.
 
 ### Option A — R (recommended, reproducible)
 
-```r
+```{r}
 # install.packages("zen4R")   # run once if not already installed
 library(zen4R)
 
 zenodo <- ZenodoManager$new()
-record <- zenodo$getRecordByDOI("10.5281/zenodo.XXXXXXX")
-zenodo$downloadFiles(record, path = "DATA")
+record <- zenodo$getRecordByDOI("10.5281/zenodo.19488689")
+# List available files in the record (to find the exact filename)
+files <- record$listFiles()
+print(files)
+
+
+dir.create(file.path("DATA"), showWarnings = FALSE)
+
+# Download the DATA archive
+record$downloadFiles(
+  files = "DATA_notebook.zip",  # exact filename
+  path = "DATA"
+)
+
+unzip(
+  zipfile = file.path("DATA", "DATA_notebook.zip"),
+  exdir   = "DATA"
+)
+
+# Optional: remove the zip after extraction to save space
+file.remove(file.path("DATA", "DATA_notebook.zip"))
 ```
 
 ### Option B — Command line
 
 ```bash
 # requires curl ≥ 7.x
-DOI_URL="https://zenodo.org/api/records/XXXXXXX/files-archive"
-curl -L "$DOI_URL" -o zenodo_data.zip
-unzip zenodo_data.zip -d DATA/
+data_notebook = "https://zenodo.org/records/19488690/files/DATA_notebook.zip?download=1"
+curl -L "$data_notebook" -o $data_notebook.zip
+unzip $data_notebook.zip -d DATA/
 ```
 
 ### Option C — Browser
 
-1. Open <https://doi.org/10.5281/zenodo.XXXXXXX>
-2. Click **Download all** (or download individual files)
+1. Open [https://zenodo.org/records/19488690](https://zenodo.org/records/19488690)
+2. Click **Download** for the DATA_notebook.zip archive.
 3. Unzip into the `DATA/` folder at the project root
 
 ### Expected DATA folder structure
