@@ -287,3 +287,402 @@ build_exposure_plot <- function(df, label_pos) {
     ) +
     theme_publication(legend_position = "right")
 }
+
+# ── Control vs stress iBAQ scatter ────────────────────────────────────────────
+
+#' Plot Control vs Stress iBAQ Expression Scatter Panels
+#'
+#' @description
+#' Creates density-coloured scatter plots with control mean log2-iBAQ on the
+#' x-axis and stress-condition mean log2-iBAQ on the y-axis. One panel per
+#' stress treatment, one figure per species. A linear regression line (red),
+#' identity line (grey dashed), and Pearson R annotation are added. Axes are
+#' fixed so the identity line is meaningful across panels.
+#'
+#' @param protQ_data  Tibble. Output of the iBAQ quantification step with at
+#'   least columns: `Species`, `Protein_id`, `Treatment`, `iBAQ_meanlog2`.
+#' @param output_path Character. Directory for saving plot files.
+#'
+#' @return Combined patchwork ggplot object (one species per row).
+plot_ctrl_vs_stress_ibaq <- function(protQ_data, output_path) {
+  mean_df <- protQ_data |>
+    dplyr::distinct(Species, Protein_id, Treatment, iBAQ_meanlog2) |>
+    dplyr::filter(is.finite(iBAQ_meanlog2))
+
+  ctrl_df <- mean_df |>
+    dplyr::filter(Treatment == "Ctrl") |>
+    dplyr::select(Species, Protein_id, iBAQ_ctrl = iBAQ_meanlog2)
+
+  paired_df <- mean_df |>
+    dplyr::filter(Treatment != "Ctrl") |>
+    dplyr::inner_join(ctrl_df, by = c("Species", "Protein_id"))
+
+  stats_df <- paired_df |>
+    dplyr::group_by(Species, Treatment) |>
+    dplyr::summarise(
+      cor_test = list(tryCatch(
+        stats::cor.test(iBAQ_ctrl, iBAQ_meanlog2, method = "pearson"),
+        error = function(e) NULL
+      )),
+      .groups = "drop"
+    ) |>
+    dplyr::mutate(
+      R       = purrr::map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$estimate),
+      p_value = purrr::map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$p.value),
+      label   = sprintf("R: %.2f\np: %.2e\n%s", R, p_value, Treatment)
+    ) |>
+    dplyr::select(-cor_test)
+
+  paired_df <- dplyr::left_join(paired_df, stats_df, by = c("Species", "Treatment"))
+
+  plots <- paired_df |>
+    dplyr::group_by(Species) |>
+    dplyr::group_map(function(sp_df, sp_key) {
+      species  <- sp_key$Species
+      title_sp <- format_species_title(species)
+
+      sp_df <- sp_df |>
+        tidyr::nest(data = -Treatment) |>
+        dplyr::mutate(data = purrr::map(data, function(df) {
+          dplyr::mutate(df, density = compute_point_density(iBAQ_ctrl, iBAQ_meanlog2))
+        })) |>
+        tidyr::unnest(data)
+
+      ordered_treatments <- sort(unique(sp_df$Treatment))
+      sp_df <- dplyr::mutate(sp_df, Treatment = factor(Treatment, levels = ordered_treatments))
+
+      label_df <- sp_df |>
+        dplyr::group_by(Treatment) |>
+        dplyr::summarise(
+          x     = min(iBAQ_ctrl,      na.rm = TRUE),
+          y     = max(iBAQ_meanlog2,  na.rm = TRUE),
+          label = dplyr::first(label),
+          .groups = "drop"
+        ) |>
+        dplyr::mutate(Treatment = factor(Treatment, levels = ordered_treatments))
+
+      p <- ggplot2::ggplot(sp_df, ggplot2::aes(x = iBAQ_ctrl, y = iBAQ_meanlog2)) +
+        ggplot2::geom_point(ggplot2::aes(colour = density), alpha = 0.5, size = 0.6) +
+        ggplot2::scale_colour_gradientn(
+          colours = c(
+            "#c8d8e8", "#a8d8ea", "#8B7BB5", "#6B3A6B",
+            "#8B2020", "#C0392B", "#e8c8cc", "#c8d8e8"
+          ),
+          name = "counts"
+        ) +
+        ggplot2::geom_abline(
+          slope = 1, intercept = 0,
+          linetype = "dashed", colour = "grey40", linewidth = 0.5
+        ) +
+        ggplot2::geom_smooth(method = "lm", se = FALSE, colour = "red", linewidth = 0.8) +
+        ggplot2::geom_text(
+          data       = label_df,
+          ggplot2::aes(x = x, y = y, label = label),
+          lineheight = 0.5,
+          hjust = 0, vjust = 1,
+          size = 5, fontface = "bold", family = "Arial"
+        ) +
+        ggplot2::facet_wrap(~Treatment, scales = "fixed", ncol = 5) +
+        ggplot2::labs(
+          x     = "Mean iBAQ Control (log2)",
+          y     = "Mean iBAQ Stress (log2)",
+          title = title_sp
+        ) +
+        theme_publication(base_size = 24, legend_position = "right") +
+        ggplot2::theme(strip.text = ggplot2::element_blank())
+
+      filename <- file.path(output_path, species, "ctrl_vs_stress_iBAQ")
+      save_plot(p, filename, width = 12, height = 6, units = "in", dpi = 300,
+                out_format = FIGURE_FORMAT)
+      message("Control vs stress iBAQ for ", species, " saved: ", filename, MSG_FIG_FORMAT)
+
+      p$layers[[4]] <- NULL
+      p +
+        ggplot2::geom_text(
+          data       = label_df,
+          ggplot2::aes(x = x, y = y, label = label),
+          lineheight = 0.5,
+          hjust = 0, vjust = 1,
+          size = 8, fontface = "bold", family = "Arial"
+        )
+    })
+
+  patchwork::wrap_plots(plots, ncol = 1) +
+    patchwork::plot_layout(guides = "keep") &
+    ggplot2::theme(
+      axis.title      = ggplot2::element_text(size = 40),
+      axis.text       = ggplot2::element_text(size = 36),
+      strip.text      = ggplot2::element_blank(),
+      legend.position = "right"
+    )
+}
+
+# ── Control vs stress: mRNA-R vs protein-R summary scatter ────────────────────
+
+#' Summary Scatter: mRNA Pearson R vs Protein Pearson R (Stress vs Control)
+#'
+#' @description
+#' For each species and stress condition, computes the Pearson correlation
+#' between mean log2 control expression and mean log2 stress expression
+#' separately for mRNA (TPM) and protein (iBAQ). Plots mRNA R on the x-axis
+#' and protein R on the y-axis; points are coloured and shaped by treatment.
+#' The grey dashed identity line (y = x) marks equal correlation in both
+#' layers. Conditions below the line have a stronger protein response relative
+#' to mRNA; conditions above have a stronger mRNA response.
+#'
+#' @param tpm_log2_data Tibble. TPM log2-transform output with columns
+#'   `Species`, `Protein_id`, `Treatment`, `mean_log2_TPM`. Already filtered
+#'   to common IDs.
+#' @param protQ_data    Tibble. Protein quantification data with columns
+#'   `Species`, `Protein_id`, `Treatment`, `iBAQ_meanlog2`.
+#' @param output_path   Character. Directory for saving the plot file.
+#'
+#' @return ggplot object.
+plot_ctrl_vs_stress_r_summary <- function(tpm_log2_data, protQ_data, output_path) {
+
+  # ── Build ctrl-vs-stress pairs ─────────────────────────────────────────────
+  rna_ctrl <- tpm_log2_data |>
+    dplyr::filter(Treatment == "Ctrl", is.finite(mean_log2_TPM)) |>
+    dplyr::select(Species, Protein_id, ctrl_expr = mean_log2_TPM)
+
+  rna_pairs <- tpm_log2_data |>
+    dplyr::filter(Treatment != "Ctrl", is.finite(mean_log2_TPM)) |>
+    dplyr::inner_join(rna_ctrl, by = c("Species", "Protein_id")) |>
+    dplyr::rename(stress_expr = mean_log2_TPM)
+
+  prot_mean <- protQ_data |>
+    dplyr::distinct(Species, Protein_id, Treatment, iBAQ_meanlog2) |>
+    dplyr::filter(is.finite(iBAQ_meanlog2))
+
+  prot_ctrl <- prot_mean |>
+    dplyr::filter(Treatment == "Ctrl") |>
+    dplyr::select(Species, Protein_id, ctrl_expr = iBAQ_meanlog2)
+
+  prot_pairs <- prot_mean |>
+    dplyr::filter(Treatment != "Ctrl") |>
+    dplyr::inner_join(prot_ctrl, by = c("Species", "Protein_id")) |>
+    dplyr::rename(stress_expr = iBAQ_meanlog2)
+
+  common_trts <- sort(intersect(unique(rna_pairs$Treatment), unique(prot_pairs$Treatment)))
+
+  # ── Pearson R per (Species, Treatment) ────────────────────────────────────
+  .pearson_r <- function(df) {
+    df |>
+      dplyr::filter(Treatment %in% common_trts) |>
+      dplyr::group_by(Species, Treatment) |>
+      dplyr::summarise(
+        R = tryCatch(
+          stats::cor.test(ctrl_expr, stress_expr, method = "pearson")$estimate,
+          error = function(e) NA_real_
+        ),
+        .groups = "drop"
+      )
+  }
+
+  rna_r  <- .pearson_r(rna_pairs)  |> dplyr::rename(R_mRNA    = R)
+  prot_r <- .pearson_r(prot_pairs) |> dplyr::rename(R_protein = R)
+
+  summary_df <- dplyr::inner_join(rna_r, prot_r, by = c("Species", "Treatment")) |>
+    dplyr::filter(is.finite(R_mRNA), is.finite(R_protein)) |>
+    dplyr::mutate(Treatment = factor(Treatment, levels = common_trts))
+
+  # Shared axis limits with 5 % padding so the identity line reaches the corners
+  r_range  <- range(c(summary_df$R_mRNA, summary_df$R_protein), na.rm = TRUE)
+  r_pad    <- diff(r_range) * 0.05
+  r_limits <- c(r_range[1] - r_pad, r_range[2] + r_pad)
+
+  # ── Plot ───────────────────────────────────────────────────────────────────
+  p <- ggplot2::ggplot(summary_df, ggplot2::aes(x = R_mRNA, y = R_protein)) +
+    ggplot2::geom_abline(
+      slope = 1, intercept = 0,
+      linetype = "dashed", colour = "grey50", linewidth = 0.6
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(colour = Treatment),
+      shape = 16, size = 5, alpha = 0.9
+    ) +
+    ggplot2::scale_colour_manual(values = TREATMENT_COLOR) +
+    ggplot2::scale_x_continuous(limits = r_limits) +
+    ggplot2::scale_y_continuous(limits = r_limits) +
+    ggplot2::coord_fixed(ratio = 1) +
+    ggplot2::facet_wrap(
+      ~Species,
+      nrow     = 1,
+      labeller = ggplot2::as_labeller(PLOT_SPECIES_NAMES)
+    ) +
+    ggplot2::labs(
+      x = "mRNA Pearson R  (Stress vs Control)",
+      y = "Protein Pearson R  (Stress vs Control)"
+    ) +
+    theme_publication(base_size = 24, legend_position = "right")
+
+  filename <- file.path(output_path, "ctrl_vs_stress_R_summary")
+  save_plot(p, filename, width = 14, height = 6, units = "in", dpi = 300,
+            out_format = FIGURE_FORMAT)
+  message("mRNA vs protein R summary saved: ", filename, MSG_FIG_FORMAT)
+
+  p
+}
+
+# ── Control vs stress: mRNA and protein side by side ──────────────────────────
+
+#' Plot Control vs Stress Expression for mRNA and Protein Side by Side
+#'
+#' @description
+#' Two stacked rows per species: mRNA (TPM) on top, protein (iBAQ) on bottom.
+#' Each row is a `facet_wrap` over stress treatments so every panel has its own
+#' independent x and y scales — mRNA and protein axes are never shared.
+#' Treatment names appear as strip labels on the mRNA row and serve as column
+#' headers for the pair below. X-axis: mean log2 control expression. Y-axis:
+#' mean log2 stress expression. Points are density-coloured; each panel carries
+#' a red LM line and a grey dashed identity line (y = x).
+#'
+#' Only treatments detected in both omic layers are shown.
+#'
+#' @param tpm_log2_data Tibble. TPM log2-transform output with columns
+#'   `Species`, `Protein_id`, `Treatment`, `mean_log2_TPM`. Already filtered
+#'   to common IDs.
+#' @param protQ_data    Tibble. Protein quantification data with columns
+#'   `Species`, `Protein_id`, `Treatment`, `iBAQ_meanlog2`.
+#' @param output_path   Character. Directory for saving plot files.
+#'
+#' @return Combined patchwork ggplot object (one species per row-pair).
+plot_ctrl_vs_stress_omics <- function(tpm_log2_data, protQ_data, output_path) {
+
+  # ── Ctrl-vs-stress pairs ───────────────────────────────────────────────────
+  rna_ctrl <- tpm_log2_data |>
+    dplyr::filter(Treatment == "Ctrl", is.finite(mean_log2_TPM)) |>
+    dplyr::select(Species, Protein_id, ctrl_expr = mean_log2_TPM)
+
+  rna_pairs <- tpm_log2_data |>
+    dplyr::filter(Treatment != "Ctrl", is.finite(mean_log2_TPM)) |>
+    dplyr::inner_join(rna_ctrl, by = c("Species", "Protein_id")) |>
+    dplyr::rename(stress_expr = mean_log2_TPM)
+
+  prot_mean <- protQ_data |>
+    dplyr::distinct(Species, Protein_id, Treatment, iBAQ_meanlog2) |>
+    dplyr::filter(is.finite(iBAQ_meanlog2))
+
+  prot_ctrl <- prot_mean |>
+    dplyr::filter(Treatment == "Ctrl") |>
+    dplyr::select(Species, Protein_id, ctrl_expr = iBAQ_meanlog2)
+
+  prot_pairs <- prot_mean |>
+    dplyr::filter(Treatment != "Ctrl") |>
+    dplyr::inner_join(prot_ctrl, by = c("Species", "Protein_id")) |>
+    dplyr::rename(stress_expr = iBAQ_meanlog2)
+
+  common_trts <- sort(intersect(unique(rna_pairs$Treatment), unique(prot_pairs$Treatment)))
+
+  # ── Pearson R per group ────────────────────────────────────────────────────
+  .compute_stats <- function(df) {
+    df |>
+      dplyr::group_by(Species, Treatment) |>
+      dplyr::summarise(
+        cor_test = list(tryCatch(
+          stats::cor.test(ctrl_expr, stress_expr, method = "pearson"),
+          error = function(e) NULL
+        )),
+        .groups = "drop"
+      ) |>
+      dplyr::mutate(
+        R       = purrr::map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$estimate),
+        p_value = purrr::map_dbl(cor_test, ~ if (is.null(.x)) NA_real_ else .x$p.value),
+        label   = sprintf("R: %.2f\np: %.2e", R, p_value)
+      ) |>
+      dplyr::select(-cor_test)
+  }
+
+  rna_stats  <- .compute_stats(dplyr::filter(rna_pairs,  Treatment %in% common_trts))
+  prot_stats <- .compute_stats(dplyr::filter(prot_pairs, Treatment %in% common_trts))
+
+  # ── Single-layer scatter (facet_wrap, per-cell free scales) ───────────────
+  # show_strips = TRUE  → treatment names on top (mRNA row)
+  # show_strips = FALSE → strips hidden (protein row, names already above)
+  .layer_scatter <- function(sp_df, sp_stats, x_lab, y_lab, title, show_strips) {
+    sp_df <- sp_df |>
+      tidyr::nest(data = -Treatment) |>
+      dplyr::mutate(data = purrr::map(data, function(df) {
+        dplyr::mutate(df, density = compute_point_density(ctrl_expr, stress_expr))
+      })) |>
+      tidyr::unnest(data) |>
+      dplyr::mutate(Treatment = factor(Treatment, levels = common_trts))
+
+    label_df <- sp_df |>
+      dplyr::group_by(Treatment) |>
+      dplyr::summarise(
+        x = min(ctrl_expr,   na.rm = TRUE),
+        y = max(stress_expr, na.rm = TRUE),
+        .groups = "drop"
+      ) |>
+      dplyr::left_join(dplyr::select(sp_stats, Treatment, label), by = "Treatment") |>
+      dplyr::mutate(Treatment = factor(Treatment, levels = common_trts))
+
+    ggplot2::ggplot(sp_df, ggplot2::aes(x = ctrl_expr, y = stress_expr)) +
+      ggplot2::geom_point(ggplot2::aes(colour = density), alpha = 0.5, size = 0.6) +
+      ggplot2::scale_colour_gradientn(
+        colours = c(
+          "#c8d8e8", "#a8d8ea", "#8B7BB5", "#6B3A6B",
+          "#8B2020", "#C0392B", "#e8c8cc", "#c8d8e8"
+        ),
+        name = "counts"
+      ) +
+      ggplot2::geom_abline(
+        slope = 1, intercept = 0,
+        linetype = "dashed", colour = "grey40", linewidth = 0.5
+      ) +
+      ggplot2::geom_smooth(method = "lm", se = FALSE, colour = "red", linewidth = 0.8) +
+      ggplot2::geom_text(
+        data        = label_df,
+        ggplot2::aes(x = x, y = y, label = label),
+        lineheight  = 0.5,
+        hjust = 0, vjust = 1,
+        size = 5, fontface = "bold", family = "Arial",
+        inherit.aes = FALSE
+      ) +
+      ggplot2::facet_wrap(~Treatment, scales = "free", nrow = 1) +
+      ggplot2::labs(x = x_lab, y = y_lab, title = title) +
+      theme_publication(base_size = 24, legend_position = "right") +
+      ggplot2::theme(
+        strip.text = if (show_strips) {
+          ggplot2::element_text(size = 20, face = "bold", family = "Arial")
+        } else {
+          ggplot2::element_blank()
+        }
+      )
+  }
+
+  # ── Per-species figure: mRNA row / protein row ─────────────────────────────
+  sp_list <- sort(unique(c(rna_pairs$Species, prot_pairs$Species)))
+
+  species_plots <- purrr::map(sp_list, function(species) {
+    title_sp <- format_species_title(species)
+
+    rna_sp  <- dplyr::filter(rna_pairs,  Species == species, Treatment %in% common_trts)
+    prot_sp <- dplyr::filter(prot_pairs, Species == species, Treatment %in% common_trts)
+    rna_s   <- dplyr::filter(rna_stats,  Species == species)
+    prot_s  <- dplyr::filter(prot_stats, Species == species)
+
+    p_rna <- .layer_scatter(
+      rna_sp, rna_s,
+      x_lab = "Control (log2 TPM)", y_lab = "Stress (log2 TPM)",
+      title = title_sp, show_strips = TRUE
+    )
+    p_prot <- .layer_scatter(
+      prot_sp, prot_s,
+      x_lab = "Control (log2 iBAQ)", y_lab = "Stress (log2 iBAQ)",
+      title = NULL, show_strips = FALSE
+    )
+
+    p_sp <- p_rna / p_prot + patchwork::plot_layout(guides = "collect")
+
+    filename <- file.path(output_path, species, "ctrl_vs_stress_mRNA_protein")
+    save_plot(p_sp, filename, width = 20, height = 8, units = "in", dpi = 300,
+              out_format = FIGURE_FORMAT)
+    message("Control vs stress mRNA+protein for ", species, " saved: ", filename, MSG_FIG_FORMAT)
+
+    p_sp
+  })
+
+  patchwork::wrap_plots(species_plots, ncol = 1)
+}

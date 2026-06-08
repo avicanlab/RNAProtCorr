@@ -1167,6 +1167,43 @@ print(plot2species$Staphylococcus_aureus)
 print(plot2species$Yersinia_pseudotuberculosis)
 ```
 
+## mRNA vs protein Pearson R — stress vs control
+
+Each point is one stress condition for one species. X-axis: Pearson *R* between mean log2 mRNA of the control and the stress condition. Y-axis: the equivalent Pearson *R* for protein. The grey dashed line is the identity (y = x). Conditions below the line show a stronger protein response relative to mRNA when compared to control; conditions above show stronger mRNA change.
+
+```{r ctrl-vs-stress-r-summary, fig.height=6, fig.width=14}
+source("sources/correlation.R")
+
+p_r_summary <- plot_ctrl_vs_stress_r_summary(
+  tpm_log2_data = tpm_log2_data,
+  protQ_data    = protQ_data,
+  output_path   = SUPP_OUTPUT_PATH
+)
+print(p_r_summary)
+```
+
+## Control vs stress expression — mRNA and protein
+
+Mean log2 expression under each stress condition plotted against the unexposed control, for mRNA (top row) and protein (bottom row). Points are coloured by local density. The red line is a linear fit; the grey dashed line is the identity (y = x). Pearson *R* is annotated per panel. Only treatments detected in both omic layers are shown.
+
+```{r ctrl-vs-stress-omics, fig.height=24, fig.width=20}
+source("sources/correlation.R")
+
+p_ctrl_stress <- plot_ctrl_vs_stress_omics(
+  tpm_log2_data = tpm_log2_data,
+  protQ_data    = protQ_data,
+  output_path   = SUPP_OUTPUT_PATH
+)
+print(p_ctrl_stress)
+
+save_plot(
+  p_ctrl_stress,
+  file.path(SUPP_OUTPUT_PATH, "ctrl_vs_stress_mRNA_protein_combined"),
+  width = 20, height = 24, units = "in"
+)
+message("Control vs stress mRNA+protein combined figure saved.")
+```
+
 ## Essential vs non-essential gene distributions per treatment
 
 ### mRNA expression
